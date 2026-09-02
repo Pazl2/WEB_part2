@@ -1,8 +1,10 @@
-// подключение Express
+require('dotenv').config();
+
 const express = require('express');
 const app = express();
 
 const postsRouter = require('./routes/posts');
+const { sequelize } = require('./models');
 
 // для парсинга JSON
 app.use(express.json());
@@ -21,7 +23,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Внутренняя ошибка сервера' });
 });
 
-// порт, айпи и запуск сервервака
+// порт, айпи и запуск сервера
 const port = 3000;
-const ip = 'localhost'
-app.listen(port, () => console.log(`Server running on http://${ip}:${port}`));
+const ip = 'localhost';
+
+sequelize
+  .authenticate()
+  .then(() => {
+    console.log('Подключение к базе данных установлено');
+    app.listen(port, () => console.log(`Server running on http://${ip}:${port}`));
+  })
+  .catch((err) => {
+    console.error('Не удалось подключиться к базе данных:', err);
+    process.exit(1);
+  });

@@ -1,63 +1,81 @@
-const postsModel = require('../models/posts');
+const { Post } = require('../models');
 
-// GET /posts
-function getAllPosts(req, res) {
-  res.status(200).json(postsModel.getAll());
+async function getAllPosts(req, res, next) {
+  try {
+    const posts = await Post.findAll();
+    res.status(200).json(posts);
+  } catch (err) {
+    next(err);
+  }
 }
 
-// GET /posts/:id
-function getPostById(req, res) {
-  const id = Number(req.params.id);
-  const post = postsModel.getById(id);
+async function getPostById(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const post = await Post.findByPk(id);
 
-  if (!post) {
-    return res.status(404).json({ error: `Пост с id=${id} не найден` });
+    if (!post) {
+      return res.status(404).json({ error: `Пост с id=${id} не найден` });
+    }
+    res.status(200).json(post);
+  } catch (err) {
+    next(err);
   }
-  res.status(200).json(post);
 }
 
-// POST /posts
-function createPost(req, res) {
-  const { title, content, author } = req.body;
+async function createPost(req, res, next) {
+  try {
+    const { title, content, author, category } = req.body;
 
-  if (!title || !content || !author) {
-    return res
-      .status(400)
-      .json({ error: 'Поля title, content и author обязательны' });
+    if (!title || !content || !author) {
+      return res
+        .status(400)
+        .json({ error: 'Поля title, content и author обязательны' });
+    }
+
+    const newPost = await Post.create({ title, content, author, category });
+    res.status(201).json(newPost);
+  } catch (err) {
+    next(err);
   }
-
-  const newPost = postsModel.create({ title, content, author });
-  res.status(201).json(newPost);
 }
 
-// PUT /posts/:id
-function updatePost(req, res) {
-  const id = Number(req.params.id);
-  const { title, content, author } = req.body;
+async function updatePost(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const { title, content, author, category } = req.body;
 
-  if (!title || !content || !author) {
-    return res
-      .status(400)
-      .json({ error: 'Поля title, content и author обязательны' });
+    if (!title || !content || !author) {
+      return res
+        .status(400)
+        .json({ error: 'Поля title, content и author обязательны' });
+    }
+
+    const post = await Post.findByPk(id);
+
+    if (!post) {
+      return res.status(404).json({ error: `Пост с id=${id} не найден` });
+    }
+
+    await post.update({ title, content, author, category });
+    res.status(200).json(post);
+  } catch (err) {
+    next(err);
   }
-
-  const updated = postsModel.update(id, { title, content, author });
-
-  if (!updated) {
-    return res.status(404).json({ error: `Пост с id=${id} не найден` });
-  }
-  res.status(200).json(updated);
 }
 
-// DELETE /posts/:id
-function deletePost(req, res) {
-  const id = Number(req.params.id);
-  const deleted = postsModel.remove(id);
+async function deletePost(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const deletedCount = await Post.destroy({ where: { id } });
 
-  if (!deleted) {
-    return res.status(404).json({ error: `Пост с id=${id} не найден` });
+    if (!deletedCount) {
+      return res.status(404).json({ error: `Пост с id=${id} не найден` });
+    }
+    res.status(204).send();
+  } catch (err) {
+    next(err);
   }
-  res.status(204).send();
 }
 
 module.exports = {
