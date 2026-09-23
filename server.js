@@ -6,11 +6,16 @@ const app = express();
 const postsRouter = require('./routes/posts');
 const { sequelize } = require('./models');
 
+const authRouter = require('./routes/auth');
+
+
 // для парсинга JSON
 app.use(express.json());
 
 // подключение маршрутов
 app.use('/posts', postsRouter);
+
+app.use('/auth', authRouter);
 
 // обработка отсутствующего маршрута — 404
 app.use((req, res, next) => {
