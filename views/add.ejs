@@ -1,0 +1,27 @@
+<%- include('partials/header') %>
+<h1>Новая тема</h1>
+<p class="meta">Вы вошли как: <%= user.name %></p>
+<% if (error) { %>
+  <p class="error"><%= error %></p>
+<% } %>
+<%# ?auth=1 нужен для middleware имитации авторизации %>
+<form class="form" method="POST" action="/add?auth=1">
+  <label for="title">Заголовок</label>
+  <input type="text" id="title" name="title" value="<%= values.title || '' %>" required>
+
+  <label for="author">Автор</label>
+  <input type="text" id="author" name="author" value="<%= values.author || '' %>" required>
+
+  <label for="category">Категория</label>
+  <select id="category" name="category">
+    <% categories.forEach(function (name) { %>
+      <option value="<%= name %>" <%= values.category === name ? 'selected' : '' %>><%= name %></option>
+    <% }); %>
+  </select>
+
+  <label for="content">Текст</label>
+  <textarea id="content" name="content" rows="6" required><%= values.content || '' %></textarea>
+
+  <button class="btn" type="submit">Добавить</button>
+</form>
+<%- include('partials/footer') %>

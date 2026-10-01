@@ -1,0 +1,9 @@
+<%- include('partials/header') %>
+<article class="card">
+  <span class="badge"><%= item.category %></span>
+  <h1><%= item.title %></h1>
+  <p class="meta">Автор: <%= item.author %> · <%= item.createdAt.toLocaleString('ru-RU') %></p>
+  <p><%= item.content %></p>
+  <a class="btn" href="/">← К списку тем</a>
+</article>
+<%- include('partials/footer') %>

@@ -1,0 +1,17 @@
+<%- include('partials/header') %>
+<h1>Темы форума</h1>
+<%# вывод списка тем циклом %>
+<% if (items.length === 0) { %>
+  <p>Тем пока нет.</p>
+<% } else { %>
+  <ul class="list">
+    <% items.forEach(function (item) { %>
+      <li class="card">
+        <span class="badge"><%= item.category %></span>
+        <h2><a href="/item/<%= item.id %>"><%= item.title %></a></h2>
+        <p class="meta"><%= item.author %> · <%= item.createdAt.toLocaleDateString('ru-RU') %></p>
+      </li>
+    <% }); %>
+  </ul>
+<% } %>
+<%- include('partials/footer') %>

@@ -7,26 +7,37 @@ const postsRouter = require('./routes/posts');
 const { sequelize } = require('./models');
 
 const authRouter = require('./routes/auth');
+const pagesRouter = require('./routes/pages');
+const { requestLogger } = require('./middleware/requestLogger');
+const { notFoundHandler, serverErrorHandler } = require('./middleware/errorHandlers');
 
+
+// настройка шаблонизатора EJS
+app.set('view engine', 'ejs');
+app.set('views', './views');
+
+// логирование должно быть первым, чтобы фиксировать все запросы
+app.use(requestLogger);
 
 // для парсинга JSON
 app.use(express.json());
+// для парсинга данных HTML-форм
+app.use(express.urlencoded({ extended: true }));
+// статические файлы (CSS)
+app.use(express.static('public'));
 
 // подключение маршрутов
 app.use('/posts', postsRouter);
 
 app.use('/auth', authRouter);
 
-// обработка отсутствующего маршрута — 404
-app.use((req, res, next) => {
-  res.status(404).json({ error: `Маршрут ${req.method} ${req.originalUrl} не найден` });
-});
+// страницы, генерируемые через EJS
+app.use('/', pagesRouter);
 
-// глобальный обработчик ошибок
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: 'Внутренняя ошибка сервера' });
-});
+// обработчики ошибок подключаются после всех маршрутов
+app.use(notFoundHandler);
+
+app.use(serverErrorHandler);
 
 // порт, айпи и запуск сервера
 const port = 3000;
