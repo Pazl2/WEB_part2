@@ -1,3 +1,5 @@
+const { LIMITS, validatePostFields } = require('../utils/validation');
+
 // данные хранятся в памяти, без базы данных
 const categories = ['Границы', 'Стоянки', 'Маршруты', 'Техника', 'Общее'];
 
@@ -45,6 +47,7 @@ function showAddForm(req, res) {
     title: 'Новая тема',
     user: req.user,
     categories,
+    limits: LIMITS,
     error: null,
     values: {},
   });
@@ -58,12 +61,14 @@ function createItem(req, res) {
   const author = String(body.author || '').trim();
   const category = categories.includes(body.category) ? body.category : 'Общее';
 
-  if (!title || !content || !author) {
+  const error = validatePostFields({ title, content, author });
+  if (error) {
     return res.status(400).render('add', {
       title: 'Новая тема',
       user: req.user,
       categories,
-      error: 'Поля «Заголовок», «Текст» и «Автор» обязательны',
+      limits: LIMITS,
+      error,
       values: { title, content, author, category },
     });
   }

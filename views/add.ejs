@@ -7,10 +7,10 @@
 <%# ?auth=1 нужен для middleware имитации авторизации %>
 <form class="form" method="POST" action="/add?auth=1">
   <label for="title">Заголовок</label>
-  <input type="text" id="title" name="title" value="<%= values.title || '' %>" required>
+  <input type="text" id="title" name="title" value="<%= values.title || '' %>" maxlength="<%= limits.title %>" required>
 
   <label for="author">Автор</label>
-  <input type="text" id="author" name="author" value="<%= values.author || '' %>" required>
+  <input type="text" id="author" name="author" value="<%= values.author || '' %>" maxlength="<%= limits.author %>" required>
 
   <label for="category">Категория</label>
   <select id="category" name="category">
@@ -20,7 +20,7 @@
   </select>
 
   <label for="content">Текст</label>
-  <textarea id="content" name="content" rows="6" required><%= values.content || '' %></textarea>
+  <textarea id="content" name="content" rows="6" maxlength="<%= limits.content %>" required><%= values.content || '' %></textarea>
 
   <button class="btn" type="submit">Добавить</button>
 </form>

@@ -1,4 +1,5 @@
 const { Post } = require('../models');
+const { validatePostFields } = require('../utils/validation');
 
 async function getAllPosts(req, res, next) {
   try {
@@ -27,10 +28,9 @@ async function createPost(req, res, next) {
   try {
     const { title, content, author, category } = req.body;
 
-    if (!title || !content || !author) {
-      return res
-        .status(400)
-        .json({ error: 'Поля title, content и author обязательны' });
+    const error = validatePostFields({ title, content, author });
+    if (error) {
+      return res.status(400).json({ error });
     }
 
     const newPost = await Post.create({ title, content, author, category });
@@ -45,10 +45,9 @@ async function updatePost(req, res, next) {
     const id = Number(req.params.id);
     const { title, content, author, category } = req.body;
 
-    if (!title || !content || !author) {
-      return res
-        .status(400)
-        .json({ error: 'Поля title, content и author обязательны' });
+    const error = validatePostFields({ title, content, author });
+    if (error) {
+      return res.status(400).json({ error });
     }
 
     const post = await Post.findByPk(id);
