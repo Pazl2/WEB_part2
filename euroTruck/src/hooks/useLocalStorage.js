@@ -4,6 +4,8 @@ export default function useLocalStorage(key, initialData) {
   const [value, setValue] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
+  value = data
+
   useEffect(() => {
     const timer = setTimeout(() => {
       let data = initialData;
@@ -17,7 +19,7 @@ export default function useLocalStorage(key, initialData) {
       }
       setValue(data);
       setLoaded(true);
-    }, 1000);
+    }, 1000)    ;
 
     return () => clearTimeout(timer);
   }, []);
