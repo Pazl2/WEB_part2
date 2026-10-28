@@ -1,43 +1,97 @@
-import { useState, useEffect } from 'react';
-import useLocalStorage from '../hooks/useLocalStorage';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchPosts, addPost, updatePost, deletePost, getErrorMessage } from '../api';
+import useDebounce from '../hooks/useDebounce';
+import Spinner from './Spinner';
+import Notification from './Notification';
+import Select from './Select';
 
 const CATEGORIES = ['Общее', 'Границы', 'Стоянки', 'Дороги'];
-
-const INITIAL_POSTS = [
-  {
-    id: 1,
-    title: 'Пробки на границе с Польшей',
-    content: 'Делюсь опытом прохождения границы в Бресте, очередь заняла 8 часов.',
-    author: 'Сергей_Даф',
-    category: 'Границы',
-    createdAt: '2026-08-01T10:00:00.000Z',
-  },
-  {
-    id: 2,
-    title: 'Лучшие приложения для поиска стоянок',
-    content: 'Пользуюсь несколькими приложениями, вот сравнение по удобству.',
-    author: 'Игорь_Вольво',
-    category: 'Стоянки',
-    createdAt: '2026-08-10T14:30:00.000Z',
-  },
+const CATEGORY_OPTIONS = CATEGORIES.map((c) => ({ value: c, label: c }));
+const FILTER_OPTIONS = [{ value: 'Все', label: 'Все категории' }, ...CATEGORY_OPTIONS];
+const SORT_OPTIONS = [
+  { value: 'new', label: 'Сначала новые' },
+  { value: 'old', label: 'Сначала старые' },
 ];
-
 const EMPTY_FORM = { title: '', content: '', author: '', category: 'Общее' };
 
-export default function PostList() {
-  const [posts, setPosts, loaded] = useLocalStorage('posts', INITIAL_POSTS);
+export default function PostList({ token, onAuthLost }) {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [syncing, setSyncing] = useState(0);
+  const [notice, setNotice] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [filter, setFilter] = useState('Все');
   const [sort, setSort] = useState('new');
+  const [search, setSearch] = useState('');
+
+  const debouncedSearch = useDebounce(search, 500);
+  const requestId = useRef(0);
+  const appliedSearch = useRef('');
+
+  useEffect(() => {
+    const id = ++requestId.current;
+    fetchPosts()
+      .then((res) => {
+        if (id !== requestId.current) return;
+        setPosts(res.data);
+        setError(null);
+      })
+      .catch((err) => {
+        if (id !== requestId.current) return;
+        setError(getErrorMessage(err));
+      })
+      .finally(() => {
+        if (id !== requestId.current) return;
+        setLoading(false);
+      });
+  }, []);
+
+  const reload = useCallback(async (searchValue) => {
+    const id = ++requestId.current;
+    appliedSearch.current = searchValue;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchPosts(searchValue);
+      if (id !== requestId.current) return;
+      setPosts(res.data);
+    } catch (err) {
+      if (id !== requestId.current) return;
+      setError(getErrorMessage(err));
+    } finally {
+      if (id === requestId.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (debouncedSearch === appliedSearch.current) return;
+    reload(debouncedSearch);
+  }, [debouncedSearch, reload]);
 
   useEffect(() => {
     document.title = `Посты: ${posts.length}`;
   }, [posts.length]);
 
-  if (!loaded) {
-    return <p className="loading">Загрузка...</p>;
-  }
+  const closeNotice = useCallback(() => setNotice(null), []);
+
+  const notify = (text, type = 'error') => setNotice({ text, type });
+
+  const track = async (request) => {
+    setSyncing((c) => c + 1);
+    try {
+      return await request();
+    } finally {
+      setSyncing((c) => c - 1);
+    }
+  };
+
+  const handleFailure = (err, prefix) => {
+    const status = err.response && err.response.status;
+    if (status === 401 || status === 403) onAuthLost();
+    notify(`${prefix}: ${getErrorMessage(err)}`);
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -49,33 +103,55 @@ export default function PostList() {
     setEditingId(null);
   };
 
+  const createPost = async (data) => {
+    const tempId = Date.now();
+    const optimistic = {
+      id: tempId,
+      ...data,
+      createdAt: new Date().toISOString(),
+      pending: true,
+    };
+    setPosts((prev) => [optimistic, ...prev]);
+    resetForm();
+
+    try {
+      const res = await track(() => addPost(data));
+      setPosts((prev) => prev.map((p) => (p.id === tempId ? res.data : p)));
+    } catch (err) {
+      setPosts((prev) => prev.filter((p) => p.id !== tempId));
+      handleFailure(err, 'Не удалось добавить пост');
+    }
+  };
+
+  const editPost = async (id, data) => {
+    const previous = posts.find((p) => p.id === id);
+    setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
+    resetForm();
+
+    try {
+      const res = await track(() => updatePost(id, data));
+      setPosts((prev) => prev.map((p) => (p.id === id ? res.data : p)));
+    } catch (err) {
+      setPosts((prev) => prev.map((p) => (p.id === id ? previous : p)));
+      handleFailure(err, 'Не удалось сохранить изменения');
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    const title = form.title.trim();
-    const content = form.content.trim();
-    const author = form.author.trim();
-    if (!title || !content || !author) {
-      return;
-    }
+    const data = {
+      title: form.title.trim(),
+      content: form.content.trim(),
+      author: form.author.trim(),
+      category: form.category,
+    };
+    if (!data.title || !data.content || !data.author) return;
 
     if (editingId !== null) {
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === editingId ? { ...p, title, content, author, category: form.category } : p
-        )
-      );
+      editPost(editingId, data);
     } else {
-      const newPost = {
-        id: Date.now(),
-        title,
-        content,
-        author,
-        category: form.category,
-        createdAt: new Date().toISOString(),
-      };
-      setPosts((prev) => [newPost, ...prev]);
+      createPost(data);
     }
-    resetForm();
   };
 
   const startEdit = (post) => {
@@ -88,10 +164,21 @@ export default function PostList() {
     });
   };
 
-  const removePost = (id) => {
+  const removePost = async (id) => {
+    const index = posts.findIndex((p) => p.id === id);
+    const removed = posts[index];
     setPosts((prev) => prev.filter((p) => p.id !== id));
-    if (editingId === id) {
-      resetForm();
+    if (editingId === id) resetForm();
+
+    try {
+      await track(() => deletePost(id));
+    } catch (err) {
+      setPosts((prev) => {
+        const next = [...prev];
+        next.splice(Math.min(index, next.length), 0, removed);
+        return next;
+      });
+      handleFailure(err, 'Не удалось удалить пост');
     }
   };
 
@@ -109,98 +196,141 @@ export default function PostList() {
   }));
 
   return (
-    <div className="container">
-      <h1>Форум дальнобойщиков</h1>
+    <div className="page">
+      <Notification notice={notice} onClose={closeNotice} />
 
-      <form className="form" onSubmit={handleSubmit}>
-        <input
-          name="title"
-          value={form.title}
-          onChange={handleChange}
-          placeholder="Заголовок"
-        />
-        <input
-          name="author"
-          value={form.author}
-          onChange={handleChange}
-          placeholder="Автор"
-        />
-        <select name="category" value={form.category} onChange={handleChange}>
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <textarea
-          name="content"
-          value={form.content}
-          onChange={handleChange}
-          placeholder="Текст поста"
-          rows={3}
-        />
-        <div className="form-buttons">
-          <button type="submit">{editingId !== null ? 'Сохранить' : 'Добавить'}</button>
-          {editingId !== null && (
-            <button type="button" onClick={resetForm}>
-              Отмена
+      <section className="intro">
+        <h1>Лента постов</h1>
+        <p>Делитесь опытом с коллегами: границы, стоянки, дороги.</p>
+      </section>
+
+      {token && (
+        <form className="card form" onSubmit={handleSubmit}>
+          <h2>{editingId !== null ? 'Редактирование поста' : 'Новый пост'}</h2>
+          <div className="form-row">
+            <input
+              name="title"
+              value={form.title}
+              onChange={handleChange}
+              placeholder="Заголовок"
+            />
+            <input
+              name="author"
+              value={form.author}
+              onChange={handleChange}
+              placeholder="Автор"
+            />
+            <Select
+              label="Категория поста"
+              value={form.category}
+              options={CATEGORY_OPTIONS}
+              onChange={(category) => setForm((prev) => ({ ...prev, category }))}
+            />
+          </div>
+          <textarea
+            name="content"
+            value={form.content}
+            onChange={handleChange}
+            placeholder="Текст поста"
+            rows={3}
+          />
+          <div className="form-actions">
+            <button type="submit" className="btn btn-primary">
+              {editingId !== null ? 'Сохранить' : 'Добавить'}
             </button>
-          )}
+            {editingId !== null && (
+              <button type="button" className="btn btn-secondary" onClick={resetForm}>
+                Отмена
+              </button>
+            )}
+            {syncing > 0 && (
+              <span className="syncing">
+                <span className="spinner spinner-small" />
+                Синхронизация с сервером...
+              </span>
+            )}
+          </div>
+        </form>
+      )}
+
+      <div className="toolbar">
+        <input
+          type="search"
+          className="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Поиск по постам"
+        />
+        <Select
+          label="Категория"
+          value={filter}
+          options={FILTER_OPTIONS}
+          onChange={setFilter}
+        />
+        <Select label="Сортировка" value={sort} options={SORT_OPTIONS} onChange={setSort} />
+      </div>
+
+      {loading ? (
+        <Spinner />
+      ) : error ? (
+        <div className="error-box">
+          <p>{error}</p>
+          <button type="button" className="btn btn-danger" onClick={() => reload(appliedSearch.current)}>
+            Повторить
+          </button>
         </div>
-      </form>
-
-      <div className="controls">
-        <label>
-          Категория:{' '}
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="Все">Все</option>
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Сортировка:{' '}
-          <select value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="new">Сначала новые</option>
-            <option value="old">Сначала старые</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="stats">
-        <span>Всего: {posts.length}</span>
-        <span>Показано: {visiblePosts.length}</span>
-        {countByCategory.map((c) => (
-          <span key={c.name}>
-            {c.name}: {c.count}
-          </span>
-        ))}
-      </div>
-
-      {visiblePosts.length === 0 ? (
-        <p>Постов нет</p>
       ) : (
-        <ul className="list">
-          {visiblePosts.map((p) => (
-            <li key={p.id} className="post">
-              <div className="post-head">
-                <strong>{p.title}</strong>
-                <span className="badge">{p.category}</span>
-              </div>
-              <p>{p.content}</p>
-              <small>
-                {p.author} · {new Date(p.createdAt).toLocaleDateString('ru-RU')}
-              </small>
-              <div className="post-buttons">
-                <button onClick={() => startEdit(p)}>Редактировать</button>
-                <button onClick={() => removePost(p.id)}>Удалить</button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="stats">
+            <span className="chip chip-strong">Всего: {posts.length}</span>
+            <span className="chip chip-strong">Показано: {visiblePosts.length}</span>
+            {countByCategory.map((c) => (
+              <span key={c.name} className="chip">
+                {c.name}: {c.count}
+              </span>
+            ))}
+          </div>
+
+          {visiblePosts.length === 0 ? (
+            <p className="empty">Постов нет</p>
+          ) : (
+            <ul className="list">
+              {visiblePosts.map((p) => (
+                <li key={p.id} className={p.pending ? 'card post post-pending' : 'card post'}>
+                  <div className="post-head">
+                    <h3>{p.title}</h3>
+                    <span className="badge">{p.category}</span>
+                  </div>
+                  <p className="post-text">{p.content}</p>
+                  <div className="post-foot">
+                    <small>
+                      {p.author} · {new Date(p.createdAt).toLocaleDateString('ru-RU')}
+                      {p.pending && ' · сохраняется...'}
+                    </small>
+                    {token && (
+                      <div className="post-buttons">
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled={p.pending}
+                          onClick={() => startEdit(p)}
+                        >
+                          Редактировать
+                        </button>
+                        <button
+                          className="btn btn-danger-outline btn-sm"
+                          disabled={p.pending}
+                          onClick={() => removePost(p.id)}
+                        >
+                          Удалить
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

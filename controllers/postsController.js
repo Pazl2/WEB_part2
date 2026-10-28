@@ -1,8 +1,21 @@
+const { Op } = require('sequelize');
 const { Post } = require('../models');
 
 async function getAllPosts(req, res, next) {
   try {
-    const posts = await Post.findAll();
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const where = {};
+
+    if (search) {
+      const pattern = `%${search}%`;
+      where[Op.or] = [
+        { title: { [Op.iLike]: pattern } },
+        { content: { [Op.iLike]: pattern } },
+        { author: { [Op.iLike]: pattern } },
+      ];
+    }
+
+    const posts = await Post.findAll({ where, order: [['createdAt', 'DESC']] });
     res.status(200).json(posts);
   } catch (err) {
     next(err);

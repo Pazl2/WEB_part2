@@ -1,35 +1,35 @@
 require('dotenv').config();
 
 const express = require('express');
-const app = express();
+const cors = require('cors');
 
 const postsRouter = require('./routes/posts');
+const authRouter = require('./routes/auth');
 const { sequelize } = require('./models');
 
-const authRouter = require('./routes/auth');
+const app = express();
 
-
-// для парсинга JSON
+app.use(cors());
 app.use(express.json());
 
-// подключение маршрутов
-app.use('/posts', postsRouter);
+const responseDelay = Number(process.env.RESPONSE_DELAY_MS) || 0;
+if (responseDelay > 0) {
+  app.use((req, res, next) => setTimeout(next, responseDelay));
+}
 
-app.use('/auth', authRouter);
+app.use('/api/posts', postsRouter);
+app.use('/api/auth', authRouter);
 
-// обработка отсутствующего маршрута — 404
-app.use((req, res, next) => {
+app.use((req, res) => {
   res.status(404).json({ error: `Маршрут ${req.method} ${req.originalUrl} не найден` });
 });
 
-// глобальный обработчик ошибок
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ error: 'Внутренняя ошибка сервера' });
 });
 
-// порт, айпи и запуск сервера
-const port = 3000;
+const port = Number(process.env.PORT) || 3000;
 const ip = 'localhost';
 
 sequelize
