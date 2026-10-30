@@ -9,7 +9,7 @@ const { sequelize } = require('./models');
 const authRouter = require('./routes/auth');
 const pagesRouter = require('./routes/pages');
 const { requestLogger } = require('./middleware/requestLogger');
-const { notFoundHandler, serverErrorHandler } = require('./middleware/errorHandlers');
+const { notFoundHandler, serverErrorHandler, logAvailabilityGuard } = require('./middleware/errorHandlers');
 
 
 // настройка шаблонизатора EJS
@@ -25,6 +25,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // статические файлы (CSS)
 app.use(express.static('public'));
+
+// если файл лога недоступен — отвечаем 503 (после static, чтобы страница ошибки сохранила стили)
+app.use(logAvailabilityGuard);
 
 // подключение маршрутов
 app.use('/posts', postsRouter);
