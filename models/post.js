@@ -1,36 +1,48 @@
-'use strict';
-const { Model } = require('sequelize');
+const mongoose = require('mongoose');
+const toJSONOptions = require('./toJSONOptions');
 
-module.exports = (sequelize, DataTypes) => {
-  class Post extends Model {
-    static associate(models) {}
-  }
+// Вложенный документ (subdocument): комментарий хранится внутри поста,
+// отдельной коллекции для него нет.
+const commentSchema = new mongoose.Schema(
+  {
+    author: { type: String, required: true, trim: true },
+    text: { type: String, required: true, trim: true },
+    likes: { type: Number, default: 0, min: 0 },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { toJSON: toJSONOptions }
+);
 
-  Post.init(
-    {
-      title: {
-        type: DataTypes.STRING,
-        allowNull: false,
-      },
-      content: {
-        type: DataTypes.TEXT,
-        allowNull: false,
-      },
-      author: {
-        type: DataTypes.STRING,
-        allowNull: false,
-      },
-      category: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        defaultValue: 'Общее',
-      },
-    },
-    {
-      sequelize,
-      modelName: 'Post',
-    }
-  );
+const postSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true, trim: true },
+    content: { type: String, required: true },
+    author: { type: String, required: true, trim: true },
+    category: { type: String, default: 'Общее' },
+    // массив строк
+    tags: { type: [String], default: [] },
+    // массив вложенных документов
+    comments: { type: [commentSchema], default: [] },
+    // ссылка на другую коллекцию (используется для populate)
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  },
+  { timestamps: true, toJSON: toJSONOptions }
+);
 
-  return Post;
+// Индексы: сортировка по дате, поиск по тегам, фильтр по автору-пользователю
+postSchema.index({ createdAt: -1 });
+postSchema.index({ tags: 1 });
+postSchema.index({ user: 1 });
+
+// Метод экземпляра: добавить комментарий в массив comments
+postSchema.methods.addComment = function (author, text) {
+  this.comments.push({ author, text });
+  return this.comments[this.comments.length - 1];
 };
+
+// Статический метод модели: посты, у которых массив tags содержит значение
+postSchema.statics.findByTag = function (tag) {
+  return this.find({ tags: tag });
+};
+
+module.exports = mongoose.model('Post', postSchema);

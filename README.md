@@ -1,32 +1,79 @@
 # Платформа для обмена опытом между дальнобойщиками
 
-Лабораторная работа №5. Взаимодействие React-приложения с сервером. Ветка репозитория: `25`.
+Лабораторная работа №6. Интеграция с NoSQL базой данных MongoDB. Ветка репозитория: `lab26`.
 
-Сервер: Node.js + Express + PostgreSQL + Sequelize + JWT (с двухфакторным подтверждением входа).
-Клиент: React + Vite + axios (папка `euroTruck`).
+Сервер: Node.js + Express + **MongoDB (Mongoose)** + JWT (с двухфакторным подтверждением входа).
+Клиент: React + Vite + axios (папка `euroTruck`): теги постов (фильтр по клику), комментарии с лайками, добавлением и удалением.
+
+В этой ветке PostgreSQL/Sequelize заменены на MongoDB/Mongoose (ветка `lab25` с PostgreSQL остаётся без изменений).
 
 ## Требования
 
 - Node.js 20+
-- PostgreSQL
+- MongoDB Atlas (бесплатный кластер M0) или локальный MongoDB Community Edition
 
 ## Запуск сервера
 
 ```bash
 npm install
-cp .env.example .env
-npx sequelize-cli db:migrate
-npx sequelize-cli db:seed:all
+cp .env.example .env     # затем впишите MONGO_URI
+npm run seed             # (необязательно) демо-посты с тегами и комментариями
 npm run dev
 ```
 
-В `.env` укажите свои данные подключения к PostgreSQL (`DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`, `DB_HOST`).
-Сервер доступен по адресу `http://localhost:3000`, API находится по префиксу `/api`.
+В `.env`:
 
-Параметры в `.env`:
+- `MONGO_URI` — строка подключения (Atlas: `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/euroTruck?...`,
+  локально: `mongodb://127.0.0.1:27017/euroTruck`). Если в пароле есть спецсимволы, закодируйте их (`@` → `%40`).
+  В Atlas: Network Access → добавить свой IP (или `0.0.0.0/0` для учебных целей).
+- `JWT_SECRET`, `JWT_EXPIRES_IN`, `PORT`, `RESPONSE_DELAY_MS` — как в предыдущих работах.
 
-- `RESPONSE_DELAY_MS` — искусственная задержка ответа сервера в миллисекундах (для демонстрации состояния загрузки), `0` отключает задержку.
-- `PORT` — порт сервера.
+Сервер доступен по адресу `http://localhost:3000`, API — по префиксу `/api`.
+
+## Модель данных
+
+Коллекция `posts` (документ):
+
+```js
+{
+  _id, title, content, author, category,
+  tags: ['граница', 'важный'],                       // массив строк
+  comments: [{ _id, author, text, likes, createdAt }], // вложенные документы
+  user: ObjectId -> users,                           // ссылка (populate)
+  createdAt, updatedAt
+}
+```
+
+Коллекция `users`: `email` (уникальный индекс), `password` (bcrypt), `role`, `twoFactorCode`, `twoFactorExpires`.
+
+В реляционной версии комментарии и теги потребовали бы отдельных таблиц и JOIN; здесь это один документ.
+
+## Эндпоинты API
+
+| Метод | URL | Доступ | Описание |
+| --- | --- | --- | --- |
+| GET | `/api/posts?search=текст&tag=важный` | открытый | Список постов, поиск по заголовку/тексту/автору, фильтр по тегу |
+| GET | `/api/posts/:id` | открытый | Один пост (с комментариями) |
+| POST | `/api/posts` | JWT | Добавление поста (`title`, `content`, `author`, `category`, `tags`) |
+| PUT | `/api/posts/:id` | JWT | Редактирование поста |
+| DELETE | `/api/posts/:id` | JWT | Удаление поста, в ответе — удалённый документ |
+| POST | `/api/posts/:id/comments` | JWT | Добавить комментарий во вложенный массив (`{ "text": "..." }`) |
+| PATCH | `/api/posts/:id/comments/:commentId/like` | JWT | Увеличить `likes` комментария внутри массива (`$inc` + `$`) |
+| DELETE | `/api/posts/:id/comments/:commentId` | JWT | Удалить комментарий из массива (`$pull`) |
+| DELETE | `/api/users/:id` | JWT + admin | Удалить пользователя и каскадно все его посты |
+| POST | `/api/auth/register` | открытый | Регистрация |
+| POST | `/api/auth/login` | открытый | Проверка пароля, генерация кода подтверждения |
+| POST | `/api/auth/verify-2fa` | открытый | Проверка кода, выдача JWT-токена |
+| GET | `/api/auth/me` | JWT | Данные текущего пользователя |
+
+Чтобы получить права admin, в MongoDB Compass измените у пользователя поле `role` на `admin` и заново войдите.
+
+## Вход в приложение
+
+1. Нажмите «Регистрация», введите email и пароль.
+2. Введите те же email и пароль, нажмите «Получить код».
+3. Скопируйте шестизначный код из консоли сервера (`[2FA] Код подтверждения ...`), введите его и подтвердите.
+4. JWT-токен сохраняется в `localStorage` и подставляется в запросы через axios interceptor.
 
 ## Запуск клиента
 
@@ -37,34 +84,9 @@ cp .env.example .env
 npm run dev
 ```
 
-Клиент открывается по адресу `http://localhost:5173`.
-В `euroTruck/.env` задаётся адрес API: `VITE_API_URL=http://localhost:3000/api`.
+Клиент открывается по адресу `http://localhost:5173` (`VITE_API_URL=http://localhost:3000/api`).
 
-## Эндпоинты API
+## Что добавлено в клиент (лаб. 6)
 
-| Метод | URL | Доступ | Описание |
-| --- | --- | --- | --- |
-| GET | `/api/posts?search=текст` | открытый | Список постов, поиск по заголовку, тексту и автору |
-| GET | `/api/posts/:id` | открытый | Один пост |
-| POST | `/api/posts` | JWT | Добавление поста |
-| PUT | `/api/posts/:id` | JWT | Редактирование поста |
-| DELETE | `/api/posts/:id` | JWT | Удаление поста |
-| POST | `/api/auth/register` | открытый | Регистрация |
-| POST | `/api/auth/login` | открытый | Проверка пароля, генерация кода подтверждения |
-| POST | `/api/auth/verify-2fa` | открытый | Проверка кода, выдача JWT-токена |
-| GET | `/api/auth/me` | JWT | Данные текущего пользователя |
-
-## Вход в приложение
-
-1. Нажмите «Регистрация», введите email и пароль, нажмите «Зарегистрироваться».
-2. Введите те же email и пароль, нажмите «Получить код».
-3. Скопируйте шестизначный код из консоли сервера (строка `[2FA] Код подтверждения ...`), введите его и нажмите «Подтвердить».
-4. JWT-токен сохраняется в `localStorage` и автоматически подставляется в запросы через axios interceptor.
-
-## Структура клиента
-
-- `src/api.js` — axios-клиент, interceptor с токеном, функции запросов, обработка ошибок.
-- `src/components/PostList.jsx` — список постов, CRUD с оптимистичным обновлением, поиск.
-- `src/components/AuthPanel.jsx` — регистрация и вход с кодом подтверждения.
-- `src/components/Spinner.jsx`, `src/components/Notification.jsx` — индикатор загрузки и уведомления.
-- `src/hooks/useDebounce.js` — debounce для поискового ввода.
+- В форме поста — поле «Теги через запятую»; теги выводятся под текстом поста, клик по тегу фильтрует ленту (`GET /api/posts?tag=...`), фильтр сбрасывается крестиком.
+- Под каждым постом — раскрывающийся блок комментариев: список, лайк (`PATCH .../like`), добавление и удаление своего комментария. Писать и лайкать могут только авторизованные пользователи.

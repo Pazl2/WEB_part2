@@ -1,42 +1,46 @@
-'use strict';
-const { Model } = require('sequelize');
+const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
+const toJSONOptions = require('./toJSONOptions');
 
-module.exports = (sequelize, DataTypes) => {
-  class User extends Model {
-    static associate(models) {}
-  }
-
-  User.init(
-    {
-      email: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        unique: true,
-        validate: { isEmail: true },
-      },
-      password: {
-        type: DataTypes.STRING,
-        allowNull: false,
-      },
-      role: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        defaultValue: 'user',
-      },
-      twoFactorCode: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
-      twoFactorExpires: {
-        type: DataTypes.DATE,
-        allowNull: true,
+const userSchema = new mongoose.Schema(
+  {
+    email: {
+      type: String,
+      required: true,
+      unique: true, // уникальный индекс по email
+      lowercase: true,
+      trim: true,
+      match: [/^\S+@\S+\.\S+$/, 'Некорректный email'],
+    },
+    password: { type: String, required: true },
+    role: { type: String, default: 'user' },
+    twoFactorCode: { type: String, default: null },
+    twoFactorExpires: { type: Date, default: null },
+  },
+  {
+    timestamps: true,
+    toJSON: {
+      ...toJSONOptions,
+      transform(doc, ret) {
+        delete ret._id;
+        delete ret.password;
+        delete ret.twoFactorCode;
+        delete ret.twoFactorExpires;
+        return ret;
       },
     },
-    {
-      sequelize,
-      modelName: 'User',
-    }
-  );
+  }
+);
 
-  return User;
+// Метод экземпляра: проверка пароля
+userSchema.methods.comparePassword = function (plain) {
+  return bcrypt.compare(plain, this.password);
 };
+
+// Каскадное удаление: при удалении пользователя удаляем все его посты
+// (комментарии лежат внутри постов и удаляются вместе с ними).
+userSchema.pre('deleteOne', { document: true, query: false }, async function () {
+  await mongoose.model('Post').deleteMany({ user: this._id });
+});
+
+module.exports = mongoose.model('User', userSchema);

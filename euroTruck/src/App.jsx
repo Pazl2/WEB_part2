@@ -31,7 +31,7 @@ export default function App() {
         onLogout={handleLogout}
       />
       <main className="container">
-        <PostList token={token} onAuthLost={handleLogout} />
+        <PostList token={token} email={email} onAuthLost={handleLogout} />
       </main>
       {authOpen && <AuthModal onClose={closeAuth} onLogin={handleLogin} />}
     </>

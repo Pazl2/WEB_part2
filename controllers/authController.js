@@ -10,11 +10,11 @@ async function register(req, res, next) {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return res.status(400).json({ error: 'Поля email и password обязательны' });
     }
 
-    const existing = await User.findOne({ where: { email } });
+    const existing = await User.findOne({ email });
     if (existing) {
       return res.status(409).json({ error: 'Пользователь с таким email уже существует' });
     }
@@ -32,16 +32,16 @@ async function login(req, res, next) {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return res.status(400).json({ error: 'Поля email и password обязательны' });
     }
 
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({ error: 'Неверный email или пароль' });
     }
 
-    const isValid = await bcrypt.compare(password, user.password);
+    const isValid = await user.comparePassword(password);
     if (!isValid) {
       return res.status(401).json({ error: 'Неверный email или пароль' });
     }
@@ -66,11 +66,11 @@ async function verifyTwoFactor(req, res, next) {
   try {
     const { email, code } = req.body;
 
-    if (!email || !code) {
+    if (typeof email !== 'string' || !email || !code) {
       return res.status(400).json({ error: 'Поля email и code обязательны' });
     }
 
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ email });
     if (!user || !user.twoFactorCode) {
       return res.status(400).json({ error: 'Сначала выполните вход через /auth/login' });
     }
@@ -101,9 +101,7 @@ async function verifyTwoFactor(req, res, next) {
 
 async function getMe(req, res, next) {
   try {
-    const user = await User.findByPk(req.user.id, {
-      attributes: ['id', 'email', 'role', 'createdAt'],
-    });
+    const user = await User.findById(req.user.id).select('email role createdAt');
 
     if (!user) {
       return res.status(404).json({ error: 'Пользователь не найден' });

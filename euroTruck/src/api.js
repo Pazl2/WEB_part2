@@ -11,11 +11,23 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export const fetchPosts = (search = '') =>
-  api.get('/posts', { params: search ? { search } : {} });
+export const fetchPosts = (search = '', tag = '') =>
+  api.get('/posts', {
+    params: {
+      ...(search ? { search } : {}),
+      ...(tag ? { tag } : {}),
+    },
+  });
 export const addPost = (post) => api.post('/posts', post);
 export const updatePost = (id, updated) => api.put(`/posts/${id}`, updated);
 export const deletePost = (id) => api.delete(`/posts/${id}`);
+
+export const addComment = (postId, text) =>
+  api.post(`/posts/${postId}/comments`, { text });
+export const likeComment = (postId, commentId) =>
+  api.patch(`/posts/${postId}/comments/${commentId}/like`);
+export const deleteComment = (postId, commentId) =>
+  api.delete(`/posts/${postId}/comments/${commentId}`);
 
 export const registerUser = (email, password) =>
   api.post('/auth/register', { email, password });

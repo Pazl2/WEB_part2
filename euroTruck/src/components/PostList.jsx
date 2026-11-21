@@ -4,6 +4,7 @@ import useDebounce from '../hooks/useDebounce';
 import Spinner from './Spinner';
 import Notification from './Notification';
 import Select from './Select';
+import Comments from './Comments';
 
 const CATEGORIES = ['Общее', 'Границы', 'Стоянки', 'Дороги'];
 const CATEGORY_OPTIONS = CATEGORIES.map((c) => ({ value: c, label: c }));
@@ -12,9 +13,18 @@ const SORT_OPTIONS = [
   { value: 'new', label: 'Сначала новые' },
   { value: 'old', label: 'Сначала старые' },
 ];
-const EMPTY_FORM = { title: '', content: '', author: '', category: 'Общее' };
+const EMPTY_FORM = { title: '', content: '', author: '', category: 'Общее', tags: '' };
 
-export default function PostList({ token, onAuthLost }) {
+const parseTags = (value) => [
+  ...new Set(
+    value
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+  ),
+];
+
+export default function PostList({ token, email, onAuthLost }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,10 +35,11 @@ export default function PostList({ token, onAuthLost }) {
   const [filter, setFilter] = useState('Все');
   const [sort, setSort] = useState('new');
   const [search, setSearch] = useState('');
+  const [tag, setTag] = useState('');
 
   const debouncedSearch = useDebounce(search, 500);
   const requestId = useRef(0);
-  const appliedSearch = useRef('');
+  const appliedQuery = useRef({ search: '', tag: '' });
 
   useEffect(() => {
     const id = ++requestId.current;
@@ -48,13 +59,13 @@ export default function PostList({ token, onAuthLost }) {
       });
   }, []);
 
-  const reload = useCallback(async (searchValue) => {
+  const reload = useCallback(async (searchValue, tagValue) => {
     const id = ++requestId.current;
-    appliedSearch.current = searchValue;
+    appliedQuery.current = { search: searchValue, tag: tagValue };
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchPosts(searchValue);
+      const res = await fetchPosts(searchValue, tagValue);
       if (id !== requestId.current) return;
       setPosts(res.data);
     } catch (err) {
@@ -66,9 +77,10 @@ export default function PostList({ token, onAuthLost }) {
   }, []);
 
   useEffect(() => {
-    if (debouncedSearch === appliedSearch.current) return;
-    reload(debouncedSearch);
-  }, [debouncedSearch, reload]);
+    const applied = appliedQuery.current;
+    if (debouncedSearch === applied.search && tag === applied.tag) return;
+    reload(debouncedSearch, tag);
+  }, [debouncedSearch, tag, reload]);
 
   useEffect(() => {
     document.title = `Посты: ${posts.length}`;
@@ -144,6 +156,7 @@ export default function PostList({ token, onAuthLost }) {
       content: form.content.trim(),
       author: form.author.trim(),
       category: form.category,
+      tags: parseTags(form.tags),
     };
     if (!data.title || !data.content || !data.author) return;
 
@@ -161,7 +174,12 @@ export default function PostList({ token, onAuthLost }) {
       content: post.content,
       author: post.author,
       category: post.category,
+      tags: (post.tags || []).join(', '),
     });
+  };
+
+  const updatePostInList = (updated) => {
+    setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   };
 
   const removePost = async (id) => {
@@ -234,6 +252,12 @@ export default function PostList({ token, onAuthLost }) {
             placeholder="Текст поста"
             rows={3}
           />
+          <input
+            name="tags"
+            value={form.tags}
+            onChange={handleChange}
+            placeholder="Теги через запятую (например: граница, важный)"
+          />
           <div className="form-actions">
             <button type="submit" className="btn btn-primary">
               {editingId !== null ? 'Сохранить' : 'Добавить'}
@@ -270,12 +294,28 @@ export default function PostList({ token, onAuthLost }) {
         <Select label="Сортировка" value={sort} options={SORT_OPTIONS} onChange={setSort} />
       </div>
 
+      {tag && (
+        <div className="stats">
+          <span className="chip chip-tag">
+            Тег: #{tag}
+            <button
+              type="button"
+              className="chip-close"
+              aria-label="Сбросить фильтр по тегу"
+              onClick={() => setTag('')}
+            >
+              ×
+            </button>
+          </span>
+        </div>
+      )}
+
       {loading ? (
         <Spinner />
       ) : error ? (
         <div className="error-box">
           <p>{error}</p>
-          <button type="button" className="btn btn-danger" onClick={() => reload(appliedSearch.current)}>
+          <button type="button" className="btn btn-danger" onClick={() => reload(appliedQuery.current.search, appliedQuery.current.tag)}>
             Повторить
           </button>
         </div>
@@ -302,6 +342,20 @@ export default function PostList({ token, onAuthLost }) {
                     <span className="badge">{p.category}</span>
                   </div>
                   <p className="post-text">{p.content}</p>
+                  {p.tags && p.tags.length > 0 && (
+                    <div className="tags">
+                      {p.tags.map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          className={t === tag ? 'tag tag-active' : 'tag'}
+                          onClick={() => setTag(t === tag ? '' : t)}
+                        >
+                          #{t}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="post-foot">
                     <small>
                       {p.author} · {new Date(p.createdAt).toLocaleDateString('ru-RU')}
@@ -326,6 +380,14 @@ export default function PostList({ token, onAuthLost }) {
                       </div>
                     )}
                   </div>
+                  <Comments
+                    post={p}
+                    token={token}
+                    email={email}
+                    disabled={Boolean(p.pending)}
+                    onUpdate={updatePostInList}
+                    onFailure={handleFailure}
+                  />
                 </li>
               ))}
             </ul>

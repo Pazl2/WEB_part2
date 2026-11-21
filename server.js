@@ -3,9 +3,10 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
+const connectDB = require('./db');
 const postsRouter = require('./routes/posts');
 const authRouter = require('./routes/auth');
-const { sequelize } = require('./models');
+const usersRouter = require('./routes/users');
 
 const app = express();
 
@@ -19,12 +20,23 @@ if (responseDelay > 0) {
 
 app.use('/api/posts', postsRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/users', usersRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: `Маршрут ${req.method} ${req.originalUrl} не найден` });
 });
 
 app.use((err, req, res, next) => {
+  if (err.name === 'ValidationError') {
+    const message = Object.values(err.errors).map((e) => e.message).join('; ');
+    return res.status(400).json({ error: message });
+  }
+  if (err.name === 'CastError') {
+    return res.status(400).json({ error: `Некорректное значение поля ${err.path}` });
+  }
+  if (err.code === 11000) {
+    return res.status(409).json({ error: 'Запись с такими данными уже существует' });
+  }
   console.error(err);
   res.status(500).json({ error: 'Внутренняя ошибка сервера' });
 });
@@ -32,13 +44,8 @@ app.use((err, req, res, next) => {
 const port = Number(process.env.PORT) || 3000;
 const ip = 'localhost';
 
-sequelize
-  .authenticate()
+connectDB()
   .then(() => {
-    console.log('Подключение к базе данных установлено');
     app.listen(port, () => console.log(`Server running on http://${ip}:${port}`));
   })
-  .catch((err) => {
-    console.error('Не удалось подключиться к базе данных:', err);
-    process.exit(1);
-  });
+  .catch(() => process.exit(1));
