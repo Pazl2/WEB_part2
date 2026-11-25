@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { addComment, likeComment, deleteComment } from '../api';
+import { addComment, likeComment, unlikeComment, deleteComment } from '../api';
 
-export default function Comments({ post, token, email, disabled, onUpdate, onFailure }) {
+export default function Comments({ post, token, user, disabled, onUpdate, onFailure }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -30,8 +30,10 @@ export default function Comments({ post, token, email, disabled, onUpdate, onFai
     if (ok) setText('');
   };
 
-  const isMine = (comment) =>
-    Boolean(email) && comment.author.toLowerCase() === email.toLowerCase();
+  // Кнопка «Удалить» только для автора комментария и админа (сервер проверяет то же самое)
+  const canDelete = (comment) =>
+    Boolean(user) &&
+    (user.role === 'admin' || (comment.userId != null && comment.userId === user.id));
 
   return (
     <div className="comments">
@@ -61,16 +63,24 @@ export default function Comments({ post, token, email, disabled, onUpdate, onFai
                   <div className="comment-actions">
                     <button
                       type="button"
-                      className="comment-btn"
+                      className={c.likedByMe ? 'comment-btn comment-btn-liked' : 'comment-btn'}
                       disabled={!token || busy}
-                      title={token ? 'Нравится' : 'Войдите, чтобы ставить лайки'}
+                      title={
+                        !token
+                          ? 'Войдите, чтобы ставить лайки'
+                          : c.likedByMe
+                            ? 'Убрать лайк'
+                            : 'Нравится'
+                      }
                       onClick={() =>
-                        run(() => likeComment(post.id, c.id), 'Не удалось поставить лайк')
+                        c.likedByMe
+                          ? run(() => unlikeComment(post.id, c.id), 'Не удалось убрать лайк')
+                          : run(() => likeComment(post.id, c.id), 'Не удалось поставить лайк')
                       }
                     >
-                      ♥ {c.likes}
+                      {c.likedByMe ? '♥' : '♡'} {c.likes}
                     </button>
-                    {token && isMine(c) && (
+                    {token && canDelete(c) && (
                       <button
                         type="button"
                         className="comment-btn comment-btn-danger"

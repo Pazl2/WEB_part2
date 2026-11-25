@@ -2,11 +2,12 @@ const express = require('express');
 const router = express.Router();
 const postsController = require('../controllers/postsController');
 const commentsController = require('../controllers/commentsController');
-const { authenticateToken } = require('../middleware/authMiddleware');
+const { authenticateToken, optionalAuth } = require('../middleware/authMiddleware');
 const { validateObjectId } = require('../middleware/validateObjectId');
 
-router.get('/', postsController.getAllPosts);
-router.get('/:id', validateObjectId('id'), postsController.getPostById);
+// Чтение открыто всем; optionalAuth лишь определяет, кто смотрит (для likedByMe)
+router.get('/', optionalAuth, postsController.getAllPosts);
+router.get('/:id', optionalAuth, validateObjectId('id'), postsController.getPostById);
 router.post('/', authenticateToken, postsController.createPost);
 router.put('/:id', authenticateToken, validateObjectId('id'), postsController.updatePost);
 router.delete('/:id', authenticateToken, validateObjectId('id'), postsController.deletePost);
@@ -18,11 +19,17 @@ router.post(
   validateObjectId('id'),
   commentsController.addComment
 );
-router.patch(
+router.put(
   '/:id/comments/:commentId/like',
   authenticateToken,
   validateObjectId('id', 'commentId'),
   commentsController.likeComment
+);
+router.delete(
+  '/:id/comments/:commentId/like',
+  authenticateToken,
+  validateObjectId('id', 'commentId'),
+  commentsController.unlikeComment
 );
 router.delete(
   '/:id/comments/:commentId',

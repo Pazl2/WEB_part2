@@ -104,6 +104,16 @@ textarea {
   min-width: 0;
 }
 
+.user-role {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  background: #fff3d6;
+  color: #7a5200;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .user-email {
   font-size: 14px;
   color: #d5d9e2;
@@ -230,7 +240,7 @@ textarea {
 
 .form-row {
   display: grid;
-  grid-template-columns: 2fr 1.2fr 1fr;
+  grid-template-columns: 2fr 1fr;
   gap: 12px;
 }
 
@@ -781,6 +791,11 @@ textarea {
 
 .comment-btn-danger:hover:not(:disabled) {
   color: var(--danger);
+}
+
+.comment-btn-liked {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .comment-form {

@@ -44,9 +44,11 @@ export default function AuthModal({ onClose, onLogin }) {
         setMessage('Код подтверждения выведен в консоль сервера');
       } else {
         const res = await verifyCode(cleanEmail, code.trim());
-        localStorage.setItem('token', res.data.token);
-        localStorage.setItem('email', cleanEmail);
-        onLogin(res.data.token, cleanEmail);
+        const { token, user } = res.data;
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem('email', user.email);
+        onLogin(token, user);
       }
     } catch (err) {
       setError(getErrorMessage(err));

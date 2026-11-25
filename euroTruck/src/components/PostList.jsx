@@ -13,7 +13,7 @@ const SORT_OPTIONS = [
   { value: 'new', label: 'Сначала новые' },
   { value: 'old', label: 'Сначала старые' },
 ];
-const EMPTY_FORM = { title: '', content: '', author: '', category: 'Общее', tags: '' };
+const EMPTY_FORM = { title: '', content: '', category: 'Общее', tags: '' };
 
 const parseTags = (value) => [
   ...new Set(
@@ -24,7 +24,7 @@ const parseTags = (value) => [
   ),
 ];
 
-export default function PostList({ token, email, onAuthLost }) {
+export default function PostList({ token, user, onAuthLost }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -100,8 +100,10 @@ export default function PostList({ token, email, onAuthLost }) {
   };
 
   const handleFailure = (err, prefix) => {
+    // 401 — токен недействителен, выходим из аккаунта.
+    // 403 — «нет прав на это действие»: сессия при этом в порядке, только сообщаем об ошибке.
     const status = err.response && err.response.status;
-    if (status === 401 || status === 403) onAuthLost();
+    if (status === 401) onAuthLost();
     notify(`${prefix}: ${getErrorMessage(err)}`);
   };
 
@@ -120,6 +122,9 @@ export default function PostList({ token, email, onAuthLost }) {
     const optimistic = {
       id: tempId,
       ...data,
+      author: user ? user.email : '',
+      userId: user ? user.id : null,
+      comments: [],
       createdAt: new Date().toISOString(),
       pending: true,
     };
@@ -154,11 +159,10 @@ export default function PostList({ token, email, onAuthLost }) {
     const data = {
       title: form.title.trim(),
       content: form.content.trim(),
-      author: form.author.trim(),
       category: form.category,
       tags: parseTags(form.tags),
     };
-    if (!data.title || !data.content || !data.author) return;
+    if (!data.title || !data.content) return;
 
     if (editingId !== null) {
       editPost(editingId, data);
@@ -172,7 +176,6 @@ export default function PostList({ token, email, onAuthLost }) {
     setForm({
       title: post.title,
       content: post.content,
-      author: post.author,
       category: post.category,
       tags: (post.tags || []).join(', '),
     });
@@ -199,6 +202,11 @@ export default function PostList({ token, email, onAuthLost }) {
       handleFailure(err, 'Не удалось удалить пост');
     }
   };
+
+  // Редактировать и удалять может автор поста или админ (сервер проверяет то же самое)
+  const canModify = (post) =>
+    Boolean(user) &&
+    (user.role === 'admin' || (post.userId != null && post.userId === user.id));
 
   const visiblePosts = posts
     .filter((p) => filter === 'Все' || p.category === filter)
@@ -231,12 +239,6 @@ export default function PostList({ token, email, onAuthLost }) {
               value={form.title}
               onChange={handleChange}
               placeholder="Заголовок"
-            />
-            <input
-              name="author"
-              value={form.author}
-              onChange={handleChange}
-              placeholder="Автор"
             />
             <Select
               label="Категория поста"
@@ -361,7 +363,7 @@ export default function PostList({ token, email, onAuthLost }) {
                       {p.author} · {new Date(p.createdAt).toLocaleDateString('ru-RU')}
                       {p.pending && ' · сохраняется...'}
                     </small>
-                    {token && (
+                    {token && canModify(p) && (
                       <div className="post-buttons">
                         <button
                           className="btn btn-secondary btn-sm"
@@ -383,7 +385,7 @@ export default function PostList({ token, email, onAuthLost }) {
                   <Comments
                     post={p}
                     token={token}
-                    email={email}
+                    user={user}
                     disabled={Boolean(p.pending)}
                     onUpdate={updatePostInList}
                     onFailure={handleFailure}

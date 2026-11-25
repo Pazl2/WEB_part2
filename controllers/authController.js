@@ -102,7 +102,10 @@ async function verifyTwoFactor(req, res, next) {
       { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
     );
 
-    res.status(200).json({ token });
+    res.status(200).json({
+      token,
+      user: { id: user.id, email: user.email, role: user.role },
+    });
   } catch (err) {
     next(err);
   }

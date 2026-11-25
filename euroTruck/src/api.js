@@ -25,7 +25,9 @@ export const deletePost = (id) => api.delete(`/posts/${id}`);
 export const addComment = (postId, text) =>
   api.post(`/posts/${postId}/comments`, { text });
 export const likeComment = (postId, commentId) =>
-  api.patch(`/posts/${postId}/comments/${commentId}/like`);
+  api.put(`/posts/${postId}/comments/${commentId}/like`);
+export const unlikeComment = (postId, commentId) =>
+  api.delete(`/posts/${postId}/comments/${commentId}/like`);
 export const deleteComment = (postId, commentId) =>
   api.delete(`/posts/${postId}/comments/${commentId}`);
 
@@ -35,6 +37,7 @@ export const loginUser = (email, password) =>
   api.post('/auth/login', { email, password });
 export const verifyCode = (email, code) =>
   api.post('/auth/verify-2fa', { email, code });
+export const getMe = () => api.get('/auth/me');
 
 export const getErrorMessage = (err) => {
   if (err.response) {

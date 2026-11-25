@@ -1,4 +1,6 @@
-const { Post, User } = require('../models');
+const { Post } = require('../models');
+const { canModify } = require('../utils/permissions');
+const { serializePost, serializePosts } = require('../utils/serializePost');
 
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -9,19 +11,6 @@ function normalizeTags(tags) {
   if (tags === undefined) return undefined;
   const list = Array.isArray(tags) ? tags : String(tags).split(',');
   return [...new Set(list.map((t) => String(t).trim()).filter(Boolean))];
-}
-
-// Аналог populate('user', 'email'): посты лежат в MongoDB, а пользователи — в PostgreSQL,
-// поэтому populate работать не может. Берём все userId одним запросом к PostgreSQL
-// и подставляем в каждый пост поле user: { id, email } (или null, если пользователя нет).
-async function attachUsers(posts) {
-  const ids = [...new Set(posts.map((p) => p.userId).filter((id) => id != null))];
-  const users = ids.length
-    ? await User.findAll({ where: { id: ids }, attributes: ['id', 'email'] })
-    : [];
-  const byId = new Map(users.map((u) => [u.id, { id: u.id, email: u.email }]));
-
-  return posts.map((p) => ({ ...p.toJSON(), user: byId.get(p.userId) || null }));
 }
 
 async function getAllPosts(req, res, next) {
@@ -38,7 +27,7 @@ async function getAllPosts(req, res, next) {
     }
 
     const posts = await query.sort({ createdAt: -1 });
-    res.status(200).json(await attachUsers(posts));
+    res.status(200).json(await serializePosts(posts, req.user));
   } catch (err) {
     next(err);
   }
@@ -51,8 +40,7 @@ async function getPostById(req, res, next) {
     if (!post) {
       return res.status(404).json({ error: `Пост с id=${req.params.id} не найден` });
     }
-    const [result] = await attachUsers([post]);
-    res.status(200).json(result);
+    res.status(200).json(await serializePost(post, req.user));
   } catch (err) {
     next(err);
   }
@@ -60,23 +48,23 @@ async function getPostById(req, res, next) {
 
 async function createPost(req, res, next) {
   try {
-    const { title, content, author, category, tags } = req.body;
+    const { title, content, category, tags } = req.body;
 
-    if (!title || !content || !author) {
-      return res
-        .status(400)
-        .json({ error: 'Поля title, content и author обязательны' });
+    if (!title || !content) {
+      return res.status(400).json({ error: 'Поля title и content обязательны' });
     }
 
+    // Автор и владелец берутся из учётной записи (req.user проверен на сервере).
+    // Поля author и userId из тела запроса игнорируются — подписаться чужим именем нельзя.
     const newPost = await Post.create({
       title,
       content,
-      author,
+      author: req.user.email,
       category,
       tags: normalizeTags(tags),
-      userId: req.user.id, // id пользователя из PostgreSQL (берётся из JWT)
+      userId: req.user.id,
     });
-    res.status(201).json(newPost);
+    res.status(201).json(await serializePost(newPost, req.user));
   } catch (err) {
     next(err);
   }
@@ -84,27 +72,29 @@ async function createPost(req, res, next) {
 
 async function updatePost(req, res, next) {
   try {
-    const { title, content, author, category, tags } = req.body;
-
-    if (!title || !content || !author) {
-      return res
-        .status(400)
-        .json({ error: 'Поля title, content и author обязательны' });
-    }
-
-    const update = { title, content, author };
-    if (category !== undefined) update.category = category;
-    if (tags !== undefined) update.tags = normalizeTags(tags);
-
-    const post = await Post.findByIdAndUpdate(req.params.id, update, {
-      new: true,
-      runValidators: true,
-    });
+    const post = await Post.findById(req.params.id);
 
     if (!post) {
       return res.status(404).json({ error: `Пост с id=${req.params.id} не найден` });
     }
-    res.status(200).json(post);
+    if (!canModify(req.user, post)) {
+      return res.status(403).json({ error: 'Редактировать пост может только его автор или админ' });
+    }
+
+    const { title, content, category, tags } = req.body;
+
+    if (!title || !content) {
+      return res.status(400).json({ error: 'Поля title и content обязательны' });
+    }
+
+    // author и userId не меняются никогда
+    post.title = title;
+    post.content = content;
+    if (category !== undefined) post.category = category;
+    if (tags !== undefined) post.tags = normalizeTags(tags);
+    await post.save();
+
+    res.status(200).json(await serializePost(post, req.user));
   } catch (err) {
     next(err);
   }
@@ -112,13 +102,18 @@ async function updatePost(req, res, next) {
 
 async function deletePost(req, res, next) {
   try {
-    const post = await Post.findByIdAndDelete(req.params.id);
+    const post = await Post.findById(req.params.id);
 
     if (!post) {
       return res.status(404).json({ error: `Пост с id=${req.params.id} не найден` });
     }
+    if (!canModify(req.user, post)) {
+      return res.status(403).json({ error: 'Удалить пост может только его автор или админ' });
+    }
+
+    await post.deleteOne();
     // возвращаем удалённый документ в ответе
-    res.status(200).json({ message: 'Пост удалён', post });
+    res.status(200).json({ message: 'Пост удалён', post: await serializePost(post, req.user) });
   } catch (err) {
     next(err);
   }

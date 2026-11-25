@@ -1,4 +1,4 @@
-export default function Header({ token, email, onLoginClick, onLogout }) {
+export default function Header({ token, user, onLoginClick, onLogout }) {
   return (
     <header className="header">
       <div className="header-inner">
@@ -17,7 +17,8 @@ export default function Header({ token, email, onLoginClick, onLogout }) {
         <div className="header-user">
           {token ? (
             <>
-              <span className="user-email">{email}</span>
+              <span className="user-email">{user ? user.email : ''}</span>
+              {user && user.role === 'admin' && <span className="user-role">админ</span>}
               <button type="button" className="btn btn-outline-light" onClick={onLogout}>
                 Выйти
               </button>

@@ -6,8 +6,14 @@ const toJSONOptions = require('./toJSONOptions');
 const commentSchema = new mongoose.Schema(
   {
     author: { type: String, required: true, trim: true },
+    // id автора из PostgreSQL. Не required: у старых и демо-комментариев его нет
+    // (такие комментарии может удалять только админ).
+    userId: { type: Number },
     text: { type: String, required: true, trim: true },
     likes: { type: Number, default: 0, min: 0 },
+    // id пользователей, лайкнувших комментарий (один пользователь — один лайк).
+    // likes всегда равен длине этого массива, оба поля меняются одним атомарным апдейтом.
+    likedBy: { type: [Number], default: [] },
     createdAt: { type: Date, default: Date.now },
   },
   { toJSON: toJSONOptions }
@@ -17,6 +23,7 @@ const postSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
     content: { type: String, required: true },
+    // Имя автора выставляет сервер (из учётной записи), клиент его не передаёт
     author: { type: String, required: true, trim: true },
     category: { type: String, default: 'Общее' },
     // массив строк
@@ -37,8 +44,8 @@ postSchema.index({ tags: 1 });
 postSchema.index({ userId: 1 });
 
 // Метод экземпляра: добавить комментарий в массив comments
-postSchema.methods.addComment = function (author, text) {
-  this.comments.push({ author, text });
+postSchema.methods.addComment = function (author, text, userId) {
+  this.comments.push({ author, text, userId });
   return this.comments[this.comments.length - 1];
 };
 
