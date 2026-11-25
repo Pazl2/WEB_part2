@@ -36,6 +36,17 @@ module.exports = (sequelize, DataTypes) => {
           );
         },
       },
+      // Публичное имя: именно оно показывается как автор постов и комментариев,
+      // email наружу не отдаётся. Уникальность без учёта регистра обеспечивает
+      // индекс users_username_lower_key (см. миграцию).
+      username: {
+        type: DataTypes.STRING(24),
+        allowNull: false,
+        validate: { len: { args: [3, 24], msg: 'Имя пользователя: от 3 до 24 символов' } },
+        set(value) {
+          this.setDataValue('username', typeof value === 'string' ? value.trim() : value);
+        },
+      },
       password: {
         type: DataTypes.STRING,
         allowNull: false,

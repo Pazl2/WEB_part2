@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { fetchPosts, addPost, updatePost, deletePost, getErrorMessage } from '../api';
 import useDebounce from '../hooks/useDebounce';
 import Spinner from './Spinner';
@@ -14,6 +14,8 @@ const SORT_OPTIONS = [
   { value: 'old', label: 'Сначала старые' },
 ];
 const EMPTY_FORM = { title: '', content: '', category: 'Общее', tags: '' };
+const PAGE_SIZE = 10;
+const EMPTY_META = { total: 0, totalPages: 1, categoryCounts: {} };
 
 const parseTags = (value) => [
   ...new Set(
@@ -26,6 +28,7 @@ const parseTags = (value) => [
 
 export default function PostList({ token, user, onAuthLost }) {
   const [posts, setPosts] = useState([]);
+  const [meta, setMeta] = useState(EMPTY_META);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [syncing, setSyncing] = useState(0);
@@ -36,55 +39,59 @@ export default function PostList({ token, user, onAuthLost }) {
   const [sort, setSort] = useState('new');
   const [search, setSearch] = useState('');
   const [tag, setTag] = useState('');
+  const [pageState, setPageState] = useState({ key: '', page: 1 });
 
   const debouncedSearch = useDebounce(search, 500);
   const requestId = useRef(0);
-  const appliedQuery = useRef({ search: '', tag: '' });
 
-  useEffect(() => {
-    const id = ++requestId.current;
-    fetchPosts()
-      .then((res) => {
-        if (id !== requestId.current) return;
-        setPosts(res.data);
-        setError(null);
-      })
-      .catch((err) => {
-        if (id !== requestId.current) return;
-        setError(getErrorMessage(err));
-      })
-      .finally(() => {
-        if (id !== requestId.current) return;
-        setLoading(false);
-      });
-  }, []);
+  // Поиск, тег, категория и сортировка выполняются на сервере. Номер страницы привязан
+  // к набору этих параметров: при смене любого из них страница сама становится первой,
+  // и лишнего запроса со старым номером страницы не будет.
+  const filtersKey = JSON.stringify([debouncedSearch, tag, filter, sort]);
+  const page = pageState.key === filtersKey ? pageState.page : 1;
+  const goToPage = (next) => setPageState({ key: filtersKey, page: next });
 
-  const reload = useCallback(async (searchValue, tagValue) => {
+  const query = useMemo(
+    () => ({
+      search: debouncedSearch,
+      tag,
+      category: filter === 'Все' ? '' : filter,
+      sort,
+      page,
+      limit: PAGE_SIZE,
+    }),
+    [debouncedSearch, tag, filter, sort, page]
+  );
+
+  // silent: обновить данные без спиннера (после создания, правки и удаления поста)
+  const reload = useCallback(async (params, { silent = false } = {}) => {
     const id = ++requestId.current;
-    appliedQuery.current = { search: searchValue, tag: tagValue };
-    setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
-      const res = await fetchPosts(searchValue, tagValue);
+      const res = await fetchPosts(params);
       if (id !== requestId.current) return;
-      setPosts(res.data);
+      const { items, total, totalPages, categoryCounts } = res.data;
+      setPosts(items);
+      setMeta({ total, totalPages, categoryCounts });
+      setError(null);
     } catch (err) {
       if (id !== requestId.current) return;
-      setError(getErrorMessage(err));
+      if (!silent) setError(getErrorMessage(err));
     } finally {
-      if (id === requestId.current) setLoading(false);
+      if (!silent && id === requestId.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const applied = appliedQuery.current;
-    if (debouncedSearch === applied.search && tag === applied.tag) return;
-    reload(debouncedSearch, tag);
-  }, [debouncedSearch, tag, reload]);
+    reload(query);
+  }, [query, reload]);
 
   useEffect(() => {
-    document.title = `Посты: ${posts.length}`;
-  }, [posts.length]);
+    document.title = `Посты: ${meta.total}`;
+  }, [meta.total]);
 
   const closeNotice = useCallback(() => setNotice(null), []);
 
@@ -122,20 +129,26 @@ export default function PostList({ token, user, onAuthLost }) {
     const optimistic = {
       id: tempId,
       ...data,
-      author: user ? user.email : '',
+      author: user ? user.username : '',
       userId: user ? user.id : null,
       comments: [],
       createdAt: new Date().toISOString(),
       pending: true,
     };
-    setPosts((prev) => [optimistic, ...prev]);
+    // Новый пост попадает в начало первой страницы; на остальных страницах его
+    // просто не видно, его покажет синхронизация после ответа сервера.
+    const showOptimistic = page === 1 && sort === 'new';
+    if (showOptimistic) setPosts((prev) => [optimistic, ...prev]);
     resetForm();
 
     try {
       const res = await track(() => addPost(data));
-      setPosts((prev) => prev.map((p) => (p.id === tempId ? res.data : p)));
+      if (showOptimistic) {
+        setPosts((prev) => prev.map((p) => (p.id === tempId ? res.data : p)));
+      }
+      reload(query, { silent: true });
     } catch (err) {
-      setPosts((prev) => prev.filter((p) => p.id !== tempId));
+      if (showOptimistic) setPosts((prev) => prev.filter((p) => p.id !== tempId));
       handleFailure(err, 'Не удалось добавить пост');
     }
   };
@@ -148,6 +161,8 @@ export default function PostList({ token, user, onAuthLost }) {
     try {
       const res = await track(() => updatePost(id, data));
       setPosts((prev) => prev.map((p) => (p.id === id ? res.data : p)));
+      // категория могла измениться, и пост выпал из текущего фильтра
+      reload(query, { silent: true });
     } catch (err) {
       setPosts((prev) => prev.map((p) => (p.id === id ? previous : p)));
       handleFailure(err, 'Не удалось сохранить изменения');
@@ -193,6 +208,11 @@ export default function PostList({ token, user, onAuthLost }) {
 
     try {
       await track(() => deletePost(id));
+      if (posts.length === 1 && page > 1) {
+        goToPage(page - 1); // удалили последний пост страницы — переходим на предыдущую
+      } else {
+        reload(query, { silent: true });
+      }
     } catch (err) {
       setPosts((prev) => {
         const next = [...prev];
@@ -208,18 +228,12 @@ export default function PostList({ token, user, onAuthLost }) {
     Boolean(user) &&
     (user.role === 'admin' || (post.userId != null && post.userId === user.id));
 
-  const visiblePosts = posts
-    .filter((p) => filter === 'Все' || p.category === filter)
-    .sort((a, b) =>
-      sort === 'new'
-        ? new Date(b.createdAt) - new Date(a.createdAt)
-        : new Date(a.createdAt) - new Date(b.createdAt)
-    );
-
+  // Счётчики приходят с сервера: на клиенте загружена только одна страница
   const countByCategory = CATEGORIES.map((c) => ({
     name: c,
-    count: posts.filter((p) => p.category === c).length,
+    count: meta.categoryCounts[c] || 0,
   }));
+  const allCount = countByCategory.reduce((sum, c) => sum + c.count, 0);
 
   return (
     <div className="page">
@@ -317,15 +331,15 @@ export default function PostList({ token, user, onAuthLost }) {
       ) : error ? (
         <div className="error-box">
           <p>{error}</p>
-          <button type="button" className="btn btn-danger" onClick={() => reload(appliedQuery.current.search, appliedQuery.current.tag)}>
+          <button type="button" className="btn btn-danger" onClick={() => reload(query)}>
             Повторить
           </button>
         </div>
       ) : (
         <>
           <div className="stats">
-            <span className="chip chip-strong">Всего: {posts.length}</span>
-            <span className="chip chip-strong">Показано: {visiblePosts.length}</span>
+            <span className="chip chip-strong">Всего: {allCount}</span>
+            <span className="chip chip-strong">Найдено: {meta.total}</span>
             {countByCategory.map((c) => (
               <span key={c.name} className="chip">
                 {c.name}: {c.count}
@@ -333,11 +347,11 @@ export default function PostList({ token, user, onAuthLost }) {
             ))}
           </div>
 
-          {visiblePosts.length === 0 ? (
+          {posts.length === 0 ? (
             <p className="empty">Постов нет</p>
           ) : (
             <ul className="list">
-              {visiblePosts.map((p) => (
+              {posts.map((p) => (
                 <li key={p.id} className={p.pending ? 'card post post-pending' : 'card post'}>
                   <div className="post-head">
                     <h3>{p.title}</h3>
@@ -393,6 +407,30 @@ export default function PostList({ token, user, onAuthLost }) {
                 </li>
               ))}
             </ul>
+          )}
+
+          {meta.totalPages > 1 && (
+            <div className="pager">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={page <= 1}
+                onClick={() => goToPage(page - 1)}
+              >
+                ← Назад
+              </button>
+              <span className="pager-info">
+                Страница {page} из {meta.totalPages}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={page >= meta.totalPages}
+                onClick={() => goToPage(page + 1)}
+              >
+                Вперёд →
+              </button>
+            </div>
           )}
         </>
       )}

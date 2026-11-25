@@ -15,7 +15,7 @@ function readStoredUser() {
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('token'));
-  // user = { id, email, role }. Роль нужна только для отображения кнопок:
+  // user = { id, email, username, role }. Роль нужна только для отображения кнопок:
   // реальные права проверяет сервер.
   const [user, setUser] = useState(() => (localStorage.getItem('token') ? readStoredUser() : null));
   const [authOpen, setAuthOpen] = useState(false);
@@ -39,7 +39,12 @@ export default function App() {
     if (!localStorage.getItem('token')) return;
     getMe()
       .then((res) => {
-        const fresh = { id: res.data.id, email: res.data.email, role: res.data.role };
+        const fresh = {
+          id: res.data.id,
+          email: res.data.email,
+          username: res.data.username,
+          role: res.data.role,
+        };
         localStorage.setItem('user', JSON.stringify(fresh));
         setUser(fresh);
       })

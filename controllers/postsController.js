@@ -1,33 +1,84 @@
 const { Post } = require('../models');
+const L = require('../config/limits');
 const { canModify } = require('../utils/permissions');
 const { serializePost, serializePosts } = require('../utils/serializePost');
+const { parsePostInput } = require('../utils/postInput');
 
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// tags может прийти массивом или строкой "важный, границы"
-function normalizeTags(tags) {
-  if (tags === undefined) return undefined;
-  const list = Array.isArray(tags) ? tags : String(tags).split(',');
-  return [...new Set(list.map((t) => String(t).trim()).filter(Boolean))];
+// Целый параметр запроса в диапазоне [1, max]. undefined → значение по умолчанию,
+// всё остальное (не число, дробь, выход за диапазон) → null.
+function parseIntParam(value, fallback, max) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !/^[1-9]\d{0,9}$/.test(value)) return null;
+  const n = Number(value);
+  return n <= max ? n : null;
 }
 
+// GET /api/posts?search=&tag=&category=&sort=new|old&page=1&limit=10
+// Ответ: { items, total, page, limit, totalPages, categoryCounts }.
+// categoryCounts — число постов по категориям при текущих search и tag (без учёта category),
+// клиент показывает по ним счётчики. total — число постов с учётом category.
 async function getAllPosts(req, res, next) {
   try {
-    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
-    const tag = typeof req.query.tag === 'string' ? req.query.tag.trim() : '';
-
-    // Model.find() возвращает Query — к нему можно цеплять .or().sort()
-    const query = tag ? Post.findByTag(tag) : Post.find();
-
-    if (search) {
-      const re = new RegExp(escapeRegExp(search), 'i');
-      query.or([{ title: re }, { content: re }, { author: re }]);
+    const { search = '', tag = '', category, sort = 'new' } = req.query;
+    if (typeof search !== 'string' || typeof tag !== 'string') {
+      return res.status(400).json({ error: 'Некорректные параметры поиска' });
+    }
+    const searchText = search.trim();
+    const tagText = tag.trim();
+    if (searchText.length > L.SEARCH_MAX || tagText.length > L.SEARCH_MAX) {
+      return res.status(400).json({ error: `Запрос слишком длинный: максимум ${L.SEARCH_MAX} символов` });
+    }
+    if (category !== undefined && !L.CATEGORIES.includes(category)) {
+      return res.status(400).json({ error: `Категория должна быть одной из: ${L.CATEGORIES.join(', ')}` });
+    }
+    if (sort !== 'new' && sort !== 'old') {
+      return res.status(400).json({ error: 'Параметр sort: new или old' });
+    }
+    const page = parseIntParam(req.query.page, 1, L.PAGE_MAX);
+    const limit = parseIntParam(req.query.limit, L.PAGE_SIZE_DEFAULT, L.PAGE_SIZE_MAX);
+    if (page === null) return res.status(400).json({ error: 'Некорректный параметр page' });
+    if (limit === null) {
+      return res.status(400).json({ error: `Параметр limit: целое от 1 до ${L.PAGE_SIZE_MAX}` });
     }
 
-    const posts = await query.sort({ createdAt: -1 });
-    res.status(200).json(await serializePosts(posts, req.user));
+    // Фильтр без категории (по нему считаются счётчики) и тот же фильтр с категорией
+    const base = {};
+    if (tagText) base.tags = tagText;
+    if (searchText) {
+      const re = new RegExp(escapeRegExp(searchText), 'i');
+      base.$or = [{ title: re }, { content: re }, { author: re }];
+    }
+    const filter = category ? { ...base, category } : base;
+
+    const direction = sort === 'old' ? 1 : -1;
+    const [posts, groups] = await Promise.all([
+      Post.find(filter)
+        .sort({ createdAt: direction, _id: direction }) // _id — чтобы порядок между страницами был стабильным
+        .skip((page - 1) * limit)
+        .limit(limit),
+      Post.aggregate([{ $match: base }, { $group: { _id: '$category', count: { $sum: 1 } } }]),
+    ]);
+
+    const categoryCounts = Object.fromEntries(L.CATEGORIES.map((c) => [c, 0]));
+    let all = 0;
+    for (const g of groups) {
+      all += g.count;
+      if (g._id in categoryCounts) categoryCounts[g._id] = g.count;
+    }
+    const total = category ? categoryCounts[category] : all;
+
+    res.status(200).json({
+      items: await serializePosts(posts, req.user),
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      categoryCounts,
+    });
   } catch (err) {
     next(err);
   }
@@ -48,20 +99,21 @@ async function getPostById(req, res, next) {
 
 async function createPost(req, res, next) {
   try {
-    const { title, content, category, tags } = req.body;
-
-    if (!title || !content) {
-      return res.status(400).json({ error: 'Поля title и content обязательны' });
+    const input = parsePostInput(req.body);
+    if (input.error) {
+      return res.status(400).json({ error: input.error });
     }
+    const { title, content, category, tags } = input.value;
 
     // Автор и владелец берутся из учётной записи (req.user проверен на сервере).
-    // Поля author и userId из тела запроса игнорируются — подписаться чужим именем нельзя.
+    // Поля author и userId из тела запроса игнорируются. Автор — публичное имя
+    // (username), а не email.
     const newPost = await Post.create({
       title,
       content,
-      author: req.user.email,
+      author: req.user.username,
       category,
-      tags: normalizeTags(tags),
+      tags,
       userId: req.user.id,
     });
     res.status(201).json(await serializePost(newPost, req.user));
@@ -81,17 +133,17 @@ async function updatePost(req, res, next) {
       return res.status(403).json({ error: 'Редактировать пост может только его автор или админ' });
     }
 
-    const { title, content, category, tags } = req.body;
-
-    if (!title || !content) {
-      return res.status(400).json({ error: 'Поля title и content обязательны' });
+    const input = parsePostInput(req.body);
+    if (input.error) {
+      return res.status(400).json({ error: input.error });
     }
+    const { title, content, category, tags } = input.value;
 
     // author и userId не меняются никогда
     post.title = title;
     post.content = content;
     if (category !== undefined) post.category = category;
-    if (tags !== undefined) post.tags = normalizeTags(tags);
+    if (tags !== undefined) post.tags = tags;
     await post.save();
 
     res.status(200).json(await serializePost(post, req.user));

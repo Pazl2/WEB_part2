@@ -3,15 +3,16 @@ const { User } = require('../models');
 // Превращает документы Post в JSON для клиента:
 //  - у каждого комментария добавляет likedByMe (лайкал ли его текущий пользователь);
 //    сам список likedBy наружу не отдаётся;
-//  - добавляет user: { id, email } автора поста из PostgreSQL (аналог populate между базами).
+//  - добавляет user: { id, username } автора поста из PostgreSQL (аналог populate между базами).
+//    Email наружу не отдаётся: GET /posts открыт всем, и по нему можно было бы собрать адреса.
 async function serializePosts(posts, viewer) {
   const viewerId = viewer ? viewer.id : null;
 
   const ids = [...new Set(posts.map((p) => p.userId).filter((id) => id != null))];
   const users = ids.length
-    ? await User.findAll({ where: { id: ids }, attributes: ['id', 'email'] })
+    ? await User.findAll({ where: { id: ids }, attributes: ['id', 'username'] })
     : [];
-  const byId = new Map(users.map((u) => [u.id, { id: u.id, email: u.email }]));
+  const byId = new Map(users.map((u) => [u.id, { id: u.id, username: u.username }]));
 
   return posts.map((post) => {
     const json = post.toJSON();

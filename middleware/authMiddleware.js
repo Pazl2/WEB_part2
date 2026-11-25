@@ -20,11 +20,11 @@ async function resolveUser(token) {
     return { status: 401, error };
   }
 
-  const user = await User.findByPk(decoded.id, { attributes: ['id', 'email', 'role'] });
+  const user = await User.findByPk(decoded.id, { attributes: ['id', 'email', 'username', 'role'] });
   if (!user) {
     return { status: 401, error: 'Пользователь не найден, войдите заново' };
   }
-  return { user: { id: user.id, email: user.email, role: user.role } };
+  return { user: { id: user.id, email: user.email, username: user.username, role: user.role } };
 }
 
 // Обязательная авторизация. 401 — нет/просрочен/недействителен токен (клиент должен

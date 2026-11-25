@@ -34,4 +34,35 @@ const verifyLimiter = createLimiter({
   message: 'Слишком много попыток ввода кода. Попробуйте через 15 минут',
 });
 
-module.exports = { registerLimiter, loginLimiter, verifyLimiter };
+// Лимиты на создание контента считаются по пользователю, а не по IP: ставить их нужно
+// после authenticateToken. Так один пользователь не может завалить ленту спамом,
+// а люди за общим NAT не мешают друг другу.
+function perUser(options) {
+  return rateLimit({
+    ...options,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `user:${req.user.id}`,
+    message: { error: options.message },
+  });
+}
+
+const createPostLimiter = perUser({
+  windowMs: 10 * MINUTE,
+  limit: 10,
+  message: 'Слишком много постов за короткое время. Попробуйте через несколько минут',
+});
+
+const createCommentLimiter = perUser({
+  windowMs: 10 * MINUTE,
+  limit: 30,
+  message: 'Слишком много комментариев за короткое время. Попробуйте через несколько минут',
+});
+
+module.exports = {
+  registerLimiter,
+  loginLimiter,
+  verifyLimiter,
+  createPostLimiter,
+  createCommentLimiter,
+};

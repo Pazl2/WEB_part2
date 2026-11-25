@@ -1,23 +1,36 @@
 const { Post } = require('../models');
+const L = require('../config/limits');
 const { canModify } = require('../utils/permissions');
 const { serializePost } = require('../utils/serializePost');
+const { parseCommentText } = require('../utils/postInput');
 
-// POST /api/posts/:id/comments — добавить элемент во вложенный массив comments
+// POST /api/posts/:id/comments — добавить элемент во вложенный массив comments.
+// Лимит числа комментариев проверяется в условии того же атомарного запроса
+// (элемента с индексом MAX-1 ещё нет), поэтому параллельными запросами его не обойти.
 async function addComment(req, res, next) {
   try {
-    const text = typeof req.body.text === 'string' ? req.body.text.trim() : '';
-    if (!text) {
-      return res.status(400).json({ error: 'Поле text обязательно' });
+    const input = parseCommentText(req.body);
+    if (input.error) {
+      return res.status(400).json({ error: input.error });
     }
 
-    const post = await Post.findById(req.params.id);
+    // автор комментария — всегда текущий пользователь (публичное имя, не email)
+    const post = await Post.findOneAndUpdate(
+      { _id: req.params.id, [`comments.${L.COMMENTS_MAX_PER_POST - 1}`]: { $exists: false } },
+      { $push: { comments: { author: req.user.username, userId: req.user.id, text: input.value } } },
+      { new: true, runValidators: true }
+    );
+
     if (!post) {
-      return res.status(404).json({ error: `Пост с id=${req.params.id} не найден` });
+      // поста нет либо в нём уже максимум комментариев
+      const exists = await Post.exists({ _id: req.params.id });
+      if (!exists) {
+        return res.status(404).json({ error: `Пост с id=${req.params.id} не найден` });
+      }
+      return res
+        .status(409)
+        .json({ error: `В посте уже максимум комментариев (${L.COMMENTS_MAX_PER_POST})` });
     }
-
-    // автор комментария — всегда текущий пользователь
-    post.addComment(req.user.email, text, req.user.id);
-    await post.save();
 
     res.status(201).json(await serializePost(post, req.user));
   } catch (err) {

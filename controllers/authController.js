@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const { User, sequelize } = require('../models');
 const { jwtSecret, jwtExpiresIn } = require('../config/env');
 const { generateCode, hashCode, codeMatches } = require('../utils/twoFactor');
-const { validateEmail, validatePassword } = require('../utils/validation');
+const { validateEmail, validateUsername, validatePassword } = require('../utils/validation');
 
 const CODE_TTL_MS = 5 * 60 * 1000;
 const MAX_CODE_ATTEMPTS = 5; // неверных вводов подряд, после чего вход по коду блокируется
@@ -22,14 +22,22 @@ function lockedMessage(lockedUntil) {
 
 async function register(req, res, next) {
   try {
-    const { email: rawEmail, password } = req.body || {};
+    const { email: rawEmail, username: rawUsername, password } = req.body || {};
 
-    if (typeof rawEmail !== 'string' || typeof password !== 'string' || !rawEmail || !password) {
-      return res.status(400).json({ error: 'Поля email и password обязательны' });
+    if (
+      typeof rawEmail !== 'string' ||
+      typeof rawUsername !== 'string' ||
+      typeof password !== 'string' ||
+      !rawEmail ||
+      !rawUsername ||
+      !password
+    ) {
+      return res.status(400).json({ error: 'Поля email, username и password обязательны' });
     }
     const email = normalizeEmail(rawEmail);
+    const username = rawUsername.trim();
 
-    const problem = validateEmail(email) || validatePassword(password);
+    const problem = validateEmail(email) || validateUsername(username) || validatePassword(password);
     if (problem) {
       return res.status(400).json({ error: problem });
     }
@@ -38,11 +46,17 @@ async function register(req, res, next) {
     if (existing) {
       return res.status(409).json({ error: 'Пользователь с таким email уже существует' });
     }
+    const usernameTaken = await User.findOne({
+      where: sequelize.where(sequelize.fn('lower', sequelize.col('username')), username.toLowerCase()),
+    });
+    if (usernameTaken) {
+      return res.status(409).json({ error: 'Это имя пользователя уже занято' });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({ email, password: hashedPassword });
+    const user = await User.create({ email, username, password: hashedPassword });
 
-    res.status(201).json({ id: user.id, email: user.email, role: user.role });
+    res.status(201).json({ id: user.id, email: user.email, username: user.username, role: user.role });
   } catch (err) {
     next(err);
   }
@@ -176,7 +190,7 @@ async function verifyTwoFactor(req, res, next) {
 
     res.status(200).json({
       token,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, username: user.username, role: user.role },
     });
   } catch (err) {
     next(err);
@@ -186,7 +200,7 @@ async function verifyTwoFactor(req, res, next) {
 async function getMe(req, res, next) {
   try {
     const user = await User.findByPk(req.user.id, {
-      attributes: ['id', 'email', 'role', 'createdAt'],
+      attributes: ['id', 'email', 'username', 'role', 'createdAt'],
     });
 
     if (!user) {

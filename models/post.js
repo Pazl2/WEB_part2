@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const toJSONOptions = require('./toJSONOptions');
+const L = require('../config/limits');
 
 // Вложенный документ (subdocument): комментарий хранится внутри поста,
 // отдельной коллекции для него нет.
@@ -9,7 +10,7 @@ const commentSchema = new mongoose.Schema(
     // id автора из PostgreSQL. Не required: у старых и демо-комментариев его нет
     // (такие комментарии может удалять только админ).
     userId: { type: Number },
-    text: { type: String, required: true, trim: true },
+    text: { type: String, required: true, trim: true, maxlength: L.COMMENT_MAX },
     likes: { type: Number, default: 0, min: 0 },
     // id пользователей, лайкнувших комментарий (один пользователь — один лайк).
     // likes всегда равен длине этого массива, оба поля меняются одним атомарным апдейтом.
@@ -21,13 +22,25 @@ const commentSchema = new mongoose.Schema(
 
 const postSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true, trim: true },
-    content: { type: String, required: true },
+    title: { type: String, required: true, trim: true, maxlength: L.TITLE_MAX },
+    content: { type: String, required: true, maxlength: L.CONTENT_MAX },
     // Имя автора выставляет сервер (из учётной записи), клиент его не передаёт
     author: { type: String, required: true, trim: true },
-    category: { type: String, default: 'Общее' },
+    category: {
+      type: String,
+      default: L.DEFAULT_CATEGORY,
+      enum: { values: L.CATEGORIES, message: 'Недопустимая категория: {VALUE}' },
+    },
     // массив строк
-    tags: { type: [String], default: [] },
+    tags: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (list) =>
+          list.length <= L.TAGS_MAX_COUNT && list.every((t) => t.length <= L.TAG_MAX_LENGTH),
+        message: `Не более ${L.TAGS_MAX_COUNT} тегов, каждый не длиннее ${L.TAG_MAX_LENGTH} символов`,
+      },
+    },
     // массив вложенных документов
     comments: { type: [commentSchema], default: [] },
     // Пользователи лежат в PostgreSQL, поэтому ссылка на них — это обычное число

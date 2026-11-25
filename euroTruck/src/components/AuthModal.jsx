@@ -7,6 +7,7 @@ const BUTTONS = { login: 'Получить код', register: 'Зарегист�
 export default function AuthModal({ onClose, onLogin }) {
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState(() => localStorage.getItem('email') || '');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -35,7 +36,7 @@ export default function AuthModal({ onClose, onLogin }) {
     try {
       const cleanEmail = email.trim();
       if (mode === 'register') {
-        await registerUser(cleanEmail, password);
+        await registerUser(cleanEmail, username.trim(), password);
         setMode('login');
         setMessage('Регистрация выполнена. Теперь войдите');
       } else if (mode === 'login') {
@@ -84,6 +85,23 @@ export default function AuthModal({ onClose, onLogin }) {
               autoFocus
             />
           </label>
+
+          {mode === 'register' && (
+            <label className="field">
+              <span>Имя пользователя</span>
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                minLength={3}
+                maxLength={24}
+                autoComplete="username"
+                required
+              />
+              <small className="field-hint">
+                Показывается как автор постов и комментариев. 3–24 символа: буквы, цифры, _ и -
+              </small>
+            </label>
+          )}
 
           {mode !== 'code' && (
             <label className="field">

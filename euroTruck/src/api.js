@@ -11,11 +11,16 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export const fetchPosts = (search = '', tag = '') =>
+// Ответ: { items, total, page, limit, totalPages, categoryCounts }
+export const fetchPosts = ({ search = '', tag = '', category = '', sort = 'new', page = 1, limit } = {}) =>
   api.get('/posts', {
     params: {
       ...(search ? { search } : {}),
       ...(tag ? { tag } : {}),
+      ...(category ? { category } : {}),
+      sort,
+      page,
+      ...(limit ? { limit } : {}),
     },
   });
 export const addPost = (post) => api.post('/posts', post);
@@ -31,8 +36,8 @@ export const unlikeComment = (postId, commentId) =>
 export const deleteComment = (postId, commentId) =>
   api.delete(`/posts/${postId}/comments/${commentId}`);
 
-export const registerUser = (email, password) =>
-  api.post('/auth/register', { email, password });
+export const registerUser = (email, username, password) =>
+  api.post('/auth/register', { email, username, password });
 export const loginUser = (email, password) =>
   api.post('/auth/login', { email, password });
 export const verifyCode = (email, code) =>
