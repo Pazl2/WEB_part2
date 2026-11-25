@@ -3,6 +3,7 @@ const L = require('../config/limits');
 const { canModify } = require('../utils/permissions');
 const { serializePost } = require('../utils/serializePost');
 const { parseCommentText } = require('../utils/postInput');
+const publisher = require('../realtime/publisher');
 
 // POST /api/posts/:id/comments — добавить элемент во вложенный массив comments.
 // Лимит числа комментариев проверяется в условии того же атомарного запроса
@@ -32,10 +33,19 @@ async function addComment(req, res, next) {
         .json({ error: `В посте уже максимум комментариев (${L.COMMENTS_MAX_PER_POST})` });
     }
 
-    res.status(201).json(await serializePost(post, req.user));
+    const body = await serializePost(post, req.user);
+    // новый комментарий — последний элемент массива
+    publisher.commentAdded(body, body.comments[body.comments.length - 1], req.user);
+    res.status(201).json(body);
   } catch (err) {
     next(err);
   }
+}
+
+// Рассылает новое число лайков комментария (список лайкнувших наружу не уходит)
+function publishLikes(post, commentId, actor) {
+  const comment = post.comments.id(commentId);
+  if (comment) publisher.commentLiked(post.id, commentId, comment.likes, actor);
 }
 
 // PUT /api/posts/:id/comments/:commentId/like — поставить лайк.
@@ -51,6 +61,7 @@ async function likeComment(req, res, next) {
       { $addToSet: { 'comments.$.likedBy': userId }, $inc: { 'comments.$.likes': 1 } },
       { new: true }
     );
+    const changed = Boolean(post);
 
     if (!post) {
       // либо поста/комментария нет, либо лайк уже стоит (тогда ничего не меняем)
@@ -59,6 +70,7 @@ async function likeComment(req, res, next) {
         return res.status(404).json({ error: 'Пост или комментарий не найден' });
       }
     }
+    if (changed) publishLikes(post, commentId, req.user);
     res.status(200).json(await serializePost(post, req.user));
   } catch (err) {
     next(err);
@@ -76,6 +88,7 @@ async function unlikeComment(req, res, next) {
       { $pull: { 'comments.$.likedBy': userId }, $inc: { 'comments.$.likes': -1 } },
       { new: true }
     );
+    const changed = Boolean(post);
 
     if (!post) {
       post = await Post.findOne({ _id: id, 'comments._id': commentId });
@@ -83,6 +96,7 @@ async function unlikeComment(req, res, next) {
         return res.status(404).json({ error: 'Пост или комментарий не найден' });
       }
     }
+    if (changed) publishLikes(post, commentId, req.user);
     res.status(200).json(await serializePost(post, req.user));
   } catch (err) {
     next(err);
@@ -113,6 +127,7 @@ async function deleteComment(req, res, next) {
       // комментарий успели удалить между проверкой и обновлением
       return res.status(404).json({ error: 'Пост или комментарий не найден' });
     }
+    publisher.commentDeleted(post.id, commentId, req.user);
     res.status(200).json(await serializePost(post, req.user));
   } catch (err) {
     next(err);

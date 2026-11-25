@@ -26,7 +26,7 @@ const parseTags = (value) => [
   ),
 ];
 
-export default function PostList({ token, user, onAuthLost }) {
+export default function PostList({ token, user, socket, onAuthLost }) {
   const [posts, setPosts] = useState([]);
   const [meta, setMeta] = useState(EMPTY_META);
   const [loading, setLoading] = useState(true);
@@ -88,6 +88,71 @@ export default function PostList({ token, user, onAuthLost }) {
   useEffect(() => {
     reload(query);
   }, [query, reload]);
+
+  // Актуальные значения для обработчиков сокета (чтобы не переподписываться при каждом вводе)
+  const queryRef = useRef(query);
+  const editingIdRef = useRef(editingId);
+  useEffect(() => {
+    queryRef.current = query;
+    editingIdRef.current = editingId;
+  });
+
+  // Уведомления в реальном времени (WebSocket). Комментарии и лайки применяются к ленте
+  // «точечно» (изменения идемпотентны: повторное событие ничего не ломает), а при
+  // изменении постов лента тихо перечитывается с сервера с текущими фильтрами и страницей.
+  useEffect(() => {
+    if (!socket) return undefined;
+    let timer = null;
+    const refresh = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => reload(queryRef.current, { silent: true }), 300);
+    };
+    const info = (e, text) => {
+      if (!user || e.actorId !== user.id) setNotice({ type: 'info', text });
+    };
+    const patchPost = (postId, change) =>
+      setPosts((prev) => prev.map((p) => (p.id === postId ? change(p) : p)));
+
+    const handlers = {
+      'post:created': (e) => {
+        info(e, `Новый пост от ${e.author}: «${e.title}»`);
+        refresh();
+      },
+      'post:updated': (e) => {
+        info(e, `Пост «${e.title}» изменён`);
+        refresh();
+      },
+      'post:deleted': (e) => {
+        if (editingIdRef.current === e.id) {
+          setForm(EMPTY_FORM);
+          setEditingId(null);
+        }
+        info(e, `Пост «${e.title}» удалён`);
+        refresh();
+      },
+      'comment:added': (e) => {
+        patchPost(e.postId, (p) => {
+          const comments = p.comments || [];
+          return comments.some((c) => c.id === e.comment.id) ? p : { ...p, comments: [...comments, e.comment] };
+        });
+        info(e, `${e.comment.author} прокомментировал пост «${e.postTitle}»`);
+      },
+      'comment:deleted': (e) =>
+        patchPost(e.postId, (p) => ({ ...p, comments: (p.comments || []).filter((c) => c.id !== e.commentId) })),
+      'comment:liked': (e) =>
+        patchPost(e.postId, (p) => ({
+          ...p,
+          comments: (p.comments || []).map((c) => (c.id === e.commentId ? { ...c, likes: e.likes } : c)),
+        })),
+      'content:refresh': refresh,
+    };
+
+    for (const [event, handler] of Object.entries(handlers)) socket.on(event, handler);
+    return () => {
+      clearTimeout(timer);
+      for (const [event, handler] of Object.entries(handlers)) socket.off(event, handler);
+    };
+  }, [socket, user, reload]);
 
   useEffect(() => {
     document.title = `Посты: ${meta.total}`;

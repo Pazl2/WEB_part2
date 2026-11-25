@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import AuthModal from './components/AuthModal';
 import PostList from './components/PostList';
+import Chat from './components/Chat';
+import useSocket from './hooks/useSocket';
 import { getMe } from './api';
 import './App.css';
 
@@ -55,6 +57,10 @@ export default function App() {
 
   const closeAuth = useCallback(() => setAuthOpen(false), []);
 
+  // WebSocket-соединение живёт, пока пользователь вошёл. Если сервер отказал из-за
+  // токена (просрочен, пользователь удалён), выходим из аккаунта, как и при 401 в REST.
+  const { socket, status } = useSocket(token, handleLogout);
+
   return (
     <>
       <Header
@@ -64,9 +70,10 @@ export default function App() {
         onLogout={handleLogout}
       />
       <main className="container">
-        <PostList token={token} user={user} onAuthLost={handleLogout} />
+        <PostList token={token} user={user} socket={socket} onAuthLost={handleLogout} />
       </main>
       {authOpen && <AuthModal onClose={closeAuth} onLogin={handleLogin} />}
+      {token && user && <Chat socket={socket} status={status} user={user} />}
     </>
   );
 }

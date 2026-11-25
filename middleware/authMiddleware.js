@@ -10,7 +10,7 @@ function extractToken(req) {
 // Проверяет подпись токена и подгружает пользователя из PostgreSQL.
 // Права (id, email, role) берутся из БД, а не из токена: если пользователя удалили
 // или сменили ему роль, это действует сразу, не дожидаясь истечения токена.
-// Возвращает { user } либо { status, error }.
+// Возвращает { user, expiresAt } (expiresAt — момент истечения токена, мс) либо { status, error }.
 async function resolveUser(token) {
   let decoded;
   try {
@@ -24,7 +24,10 @@ async function resolveUser(token) {
   if (!user) {
     return { status: 401, error: 'Пользователь не найден, войдите заново' };
   }
-  return { user: { id: user.id, email: user.email, username: user.username, role: user.role } };
+  return {
+    user: { id: user.id, email: user.email, username: user.username, role: user.role },
+    expiresAt: decoded.exp * 1000,
+  };
 }
 
 // Обязательная авторизация. 401 — нет/просрочен/недействителен токен (клиент должен
@@ -64,4 +67,4 @@ async function optionalAuth(req, res, next) {
   }
 }
 
-module.exports = { authenticateToken, optionalAuth };
+module.exports = { authenticateToken, optionalAuth, resolveUser };

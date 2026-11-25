@@ -3,6 +3,7 @@ require('dotenv').config();
 // Сначала проверяем конфигурацию: без нормального JWT_SECRET сервер не стартует
 const { clientOrigins } = require('./config/env');
 
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -12,6 +13,7 @@ const { sequelize } = require('./models');
 const postsRouter = require('./routes/posts');
 const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
+const { initRealtime } = require('./realtime');
 
 const app = express();
 
@@ -78,6 +80,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Внутренняя ошибка сервера' });
 });
 
+// Express и Socket.IO работают на одном HTTP-сервере и одном порту:
+// REST-запросы обрабатывает app, а соединения WebSocket — Socket.IO.
+const server = http.createServer(app);
+initRealtime(server);
+
 const port = Number(process.env.PORT) || 3000;
 const ip = 'localhost';
 
@@ -87,7 +94,7 @@ Promise.all([
   connectDB(),
 ])
   .then(() => {
-    app.listen(port, () => console.log(`Server running on http://${ip}:${port}`));
+    server.listen(port, () => console.log(`Server running on http://${ip}:${port}`));
   })
   .catch((err) => {
     console.error('Не удалось подключиться к базам данных:', err.message);

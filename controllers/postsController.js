@@ -3,6 +3,7 @@ const L = require('../config/limits');
 const { canModify } = require('../utils/permissions');
 const { serializePost, serializePosts } = require('../utils/serializePost');
 const { parsePostInput } = require('../utils/postInput');
+const publisher = require('../realtime/publisher');
 
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -116,7 +117,9 @@ async function createPost(req, res, next) {
       tags,
       userId: req.user.id,
     });
-    res.status(201).json(await serializePost(newPost, req.user));
+    const body = await serializePost(newPost, req.user);
+    publisher.postCreated(body, req.user); // уведомляем подключённых по WebSocket
+    res.status(201).json(body);
   } catch (err) {
     next(err);
   }
@@ -146,7 +149,9 @@ async function updatePost(req, res, next) {
     if (tags !== undefined) post.tags = tags;
     await post.save();
 
-    res.status(200).json(await serializePost(post, req.user));
+    const body = await serializePost(post, req.user);
+    publisher.postUpdated(body, req.user);
+    res.status(200).json(body);
   } catch (err) {
     next(err);
   }
@@ -165,7 +170,9 @@ async function deletePost(req, res, next) {
 
     await post.deleteOne();
     // возвращаем удалённый документ в ответе
-    res.status(200).json({ message: 'Пост удалён', post: await serializePost(post, req.user) });
+    const body = await serializePost(post, req.user);
+    publisher.postDeleted(body, req.user);
+    res.status(200).json({ message: 'Пост удалён', post: body });
   } catch (err) {
     next(err);
   }

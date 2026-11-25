@@ -1,11 +1,15 @@
-const { User, Post, sequelize } = require('../models');
+const { User, Post, ChatMessage, sequelize } = require('../models');
+const publisher = require('../realtime/publisher');
 
 // DELETE /api/users/:id (только admin) — каскадное удаление между двумя базами.
 // Внешнего ключа между PostgreSQL и MongoDB нет, поэтому каскад делаем в коде:
 // удаляем пользователя в транзакции PostgreSQL, затем в MongoDB:
 //   1) его посты (вместе с вложенными комментариями);
 //   2) его комментарии в чужих постах;
-//   3) его лайки под чужими комментариями (с коррекцией счётчика likes).
+//   3) его лайки под чужими комментариями (с коррекцией счётчика likes);
+//   4) его сообщения в чате и личные сообщения, адресованные ему.
+// После этого закрываются его соединения WebSocket, а остальным клиентам уходит
+// сигнал перечитать ленту.
 // Если любой из шагов упадёт, транзакция PostgreSQL откатится и пользователь останется
 // на месте. Операции в MongoDB при этом не откатываются, но все они идемпотентны:
 // повторный DELETE доделает остальное.
@@ -21,6 +25,7 @@ async function deleteUser(req, res, next) {
     let deletedPosts = 0;
     let postsWithCommentsRemoved = 0;
     let postsWithLikesRemoved = 0;
+    let deletedChatMessages = 0;
     await sequelize.transaction(async (transaction) => {
       await user.destroy({ transaction });
 
@@ -40,14 +45,23 @@ async function deleteUser(req, res, next) {
         { arrayFilters: [{ 'c.likedBy': id }] }
       );
       postsWithLikesRemoved = likes.modifiedCount;
+
+      const chat = await ChatMessage.deleteMany({ $or: [{ userId: id }, { recipientId: id }] });
+      deletedChatMessages = chat.deletedCount;
     });
 
+    // Транзакция успешна: пользователя больше нет, закрываем его вкладки
+    // и просим остальных клиентов обновить ленту (посты и комментарии пропали)
+    publisher.disconnectUser(id);
+    publisher.contentRefresh();
+
     res.status(200).json({
-      message: 'Пользователь, его посты, комментарии и лайки удалены',
+      message: 'Пользователь, его посты, комментарии, лайки и сообщения чата удалены',
       user,
       deletedPosts,
       postsWithCommentsRemoved,
       postsWithLikesRemoved,
+      deletedChatMessages,
     });
   } catch (err) {
     next(err);

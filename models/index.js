@@ -3,6 +3,7 @@
 // Две базы данных:
 //   PostgreSQL (Sequelize) — пользователи (User)
 //   MongoDB (Mongoose)     — посты (Post) с вложенными комментариями и тегами
+//                            и история чата (ChatMessage)
 const Sequelize = require('sequelize');
 
 const env = process.env.NODE_ENV || 'development';
@@ -17,5 +18,6 @@ const sequelize = new Sequelize(config.database, config.username, config.passwor
 
 const User = require('./user')(sequelize, Sequelize.DataTypes);
 const Post = require('./post');
+const ChatMessage = require('./chatMessage');
 
-module.exports = { sequelize, Sequelize, User, Post };
+module.exports = { sequelize, Sequelize, User, Post, ChatMessage };
