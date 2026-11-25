@@ -8,18 +8,11 @@ const { createSocketAuth } = require('./auth');
 const { registerChatHandlers, roomKey, publicUser } = require('./chatHandlers');
 const { setRealtime } = require('./publisher');
 
-// Подключает Socket.IO к HTTP-серверу Express. Соединение устанавливается так:
-// клиент делает HTTP-запрос (handshake), сервер переключает его на WebSocket (Upgrade);
-// если WebSocket недоступен, Socket.IO продолжает работать через long polling.
 function initRealtime(httpServer) {
   const presence = new Presence();
 
   const io = new Server(httpServer, {
-    // CORS для запросов long polling. Токен лежит не в cookie, а в handshake.auth,
-    // поэтому чужой сайт не может подключиться от имени пользователя.
     cors: { origin: clientOrigins, methods: ['GET', 'POST'] },
-    // WebSocket не подчиняется CORS, поэтому Origin проверяем сами: запросы из браузера
-    // с чужого сайта отклоняются (клиенты без заголовка Origin, например скрипты, допускаются).
     allowRequest: (req, callback) => {
       const origin = req.headers.origin;
       callback(null, !origin || clientOrigins.includes(origin));
@@ -33,7 +26,6 @@ function initRealtime(httpServer) {
     typingLimiter: createRateLimiter(L.TYPING_RATE),
   };
 
-  // Без действительного токена соединение не устанавливается
   io.use(createSocketAuth(presence));
 
   io.on('connection', (socket) => {
@@ -41,8 +33,6 @@ function initRealtime(httpServer) {
     const isFirstConnection = presence.connect(socket.id, user);
     console.log(`[ws] ${user.username} подключился (${socket.id}), онлайн: ${presence.online().length}`);
 
-    // Токен нельзя отозвать, поэтому соединение живёт не дольше токена. Клиент после
-    // разрыва переподключится, получит отказ (токен истёк) и попросит войти заново.
     const MAX_TIMER_MS = 2 ** 31 - 1;
     const expiryTimer = setTimeout(
       () => socket.disconnect(true),

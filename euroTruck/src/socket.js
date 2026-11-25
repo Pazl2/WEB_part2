@@ -1,11 +1,8 @@
 import { io } from 'socket.io-client';
 
-// Адрес сервера Socket.IO: тот же сервер, что и у REST-API (VITE_API_URL без префикса /api).
-// При необходимости можно задать отдельно через VITE_SOCKET_URL.
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || new URL(apiUrl, window.location.href).origin;
 
-// Названия событий (тот же список, что в realtime/events.js на сервере)
 export const EVENTS = {
   ROOM_JOIN: 'room:join',
   ROOM_LEAVE: 'room:leave',
@@ -23,9 +20,6 @@ export const EVENTS = {
 
 const ACK_TIMEOUT_MS = 5000;
 
-// Небольшое внешнее хранилище: одно соединение на всё приложение. Компоненты читают его
-// через useSyncExternalStore (см. hooks/useSocket.js), поэтому им не нужен setState в эффектах.
-// status: connecting | online | reconnecting | offline
 let state = { socket: null, status: 'offline' };
 const listeners = new Set();
 
@@ -48,12 +42,8 @@ export function disconnect() {
   setState({ socket: null, status: 'offline' });
 }
 
-// Подключение с токеном в handshake.auth. onAuthLost вызывается, если сервер отказал
-// из-за токена (просрочен, пользователь удалён): нужно выйти из аккаунта.
 export function connect(token, onAuthLost) {
   disconnect();
-  // forceNew: у каждого подключения свой Manager. Иначе при смене пользователя
-  // Socket.IO вернул бы старый сокет со старым токеном.
   const socket = io(SOCKET_URL, { auth: { token }, forceNew: true, reconnectionDelayMax: 5000 });
   const isCurrent = () => state.socket === socket;
 
@@ -64,9 +54,7 @@ export function connect(token, onAuthLost) {
   socket.on('disconnect', (reason) => {
     if (!isCurrent()) return;
     setState({ status: 'reconnecting' });
-    // Если сервер сам закрыл соединение (истёк токен, удалён аккаунт), клиент
-    // автоматически не переподключается. Пробуем вручную: при плохом токене сервер
-    // ответит AUTH_FAILED, и мы выйдем из аккаунта.
+
     if (reason === 'io server disconnect') {
       setTimeout(() => isCurrent() && socket.connect(), 1000);
     }
