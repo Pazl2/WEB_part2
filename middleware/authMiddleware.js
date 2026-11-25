@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
+const { jwtSecret } = require('../config/env');
 
 function extractToken(req) {
   const authHeader = req.headers['authorization'];
@@ -13,7 +14,7 @@ function extractToken(req) {
 async function resolveUser(token) {
   let decoded;
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+    decoded = jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
   } catch (err) {
     const error = err.name === 'TokenExpiredError' ? 'Токен истёк, войдите заново' : 'Недействительный токен';
     return { status: 401, error };

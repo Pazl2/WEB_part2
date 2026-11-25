@@ -1,7 +1,11 @@
 require('dotenv').config();
 
+// Сначала проверяем конфигурацию: без нормального JWT_SECRET сервер не стартует
+const { clientOrigins } = require('./config/env');
+
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 
 const connectDB = require('./db');
 const { sequelize } = require('./models');
@@ -11,8 +15,24 @@ const usersRouter = require('./routes/users');
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+// Если сервер стоит за reverse proxy (nginx и т.п.), укажите число прокси в TRUST_PROXY,
+// иначе rate limit будет считать все запросы с одного IP
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+}
+
+app.use(helmet());
+// CORS только для адреса(ов) клиента из CLIENT_ORIGIN; токен передаётся в заголовке
+// Authorization, а не в cookie, поэтому credentials не нужны
+app.use(
+  cors({
+    origin: clientOrigins,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 600,
+  })
+);
+app.use(express.json({ limit: '100kb' }));
 
 const responseDelay = Number(process.env.RESPONSE_DELAY_MS) || 0;
 if (responseDelay > 0) {
@@ -28,6 +48,13 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  // Ошибки разбора тела запроса (битый JSON, слишком большое тело)
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Некорректный JSON в теле запроса' });
+  }
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Тело запроса слишком большое' });
+  }
   // Ошибки Sequelize (PostgreSQL — пользователи)
   if (err.name === 'SequelizeUniqueConstraintError') {
     return res.status(409).json({ error: 'Запись с такими данными уже существует' });

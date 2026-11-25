@@ -92,8 +92,11 @@ export default function AuthModal({ onClose, onLogin }) {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                minLength={mode === 'register' ? 8 : undefined}
+                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                 required
               />
+              {mode === 'register' && <small className="field-hint">Минимум 8 символов</small>}
             </label>
           )}
 
@@ -104,6 +107,8 @@ export default function AuthModal({ onClose, onLogin }) {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 inputMode="numeric"
+                maxLength={6}
+                autoComplete="one-time-code"
                 required
                 autoFocus
               />

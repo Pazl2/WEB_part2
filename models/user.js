@@ -15,6 +15,8 @@ module.exports = (sequelize, DataTypes) => {
       delete values.password;
       delete values.twoFactorCode;
       delete values.twoFactorExpires;
+      delete values.twoFactorAttempts;
+      delete values.twoFactorLockedUntil;
       return values;
     }
   }
@@ -48,6 +50,16 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
       twoFactorExpires: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      // число неверных вводов кода и время, до которого вход по коду заблокирован
+      twoFactorAttempts: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      twoFactorLockedUntil: {
         type: DataTypes.DATE,
         allowNull: true,
       },
