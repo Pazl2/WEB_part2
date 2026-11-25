@@ -1,4 +1,4 @@
-const { Post } = require('../models');
+const { Post, User } = require('../models');
 
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -11,12 +11,25 @@ function normalizeTags(tags) {
   return [...new Set(list.map((t) => String(t).trim()).filter(Boolean))];
 }
 
+// Аналог populate('user', 'email'): посты лежат в MongoDB, а пользователи — в PostgreSQL,
+// поэтому populate работать не может. Берём все userId одним запросом к PostgreSQL
+// и подставляем в каждый пост поле user: { id, email } (или null, если пользователя нет).
+async function attachUsers(posts) {
+  const ids = [...new Set(posts.map((p) => p.userId).filter((id) => id != null))];
+  const users = ids.length
+    ? await User.findAll({ where: { id: ids }, attributes: ['id', 'email'] })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, { id: u.id, email: u.email }]));
+
+  return posts.map((p) => ({ ...p.toJSON(), user: byId.get(p.userId) || null }));
+}
+
 async function getAllPosts(req, res, next) {
   try {
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
     const tag = typeof req.query.tag === 'string' ? req.query.tag.trim() : '';
 
-    // Model.find() возвращает Query — к нему можно цеплять .or().sort().populate()
+    // Model.find() возвращает Query — к нему можно цеплять .or().sort()
     const query = tag ? Post.findByTag(tag) : Post.find();
 
     if (search) {
@@ -24,8 +37,8 @@ async function getAllPosts(req, res, next) {
       query.or([{ title: re }, { content: re }, { author: re }]);
     }
 
-    const posts = await query.sort({ createdAt: -1 }).populate('user', 'email');
-    res.status(200).json(posts);
+    const posts = await query.sort({ createdAt: -1 });
+    res.status(200).json(await attachUsers(posts));
   } catch (err) {
     next(err);
   }
@@ -33,12 +46,13 @@ async function getAllPosts(req, res, next) {
 
 async function getPostById(req, res, next) {
   try {
-    const post = await Post.findById(req.params.id).populate('user', 'email');
+    const post = await Post.findById(req.params.id);
 
     if (!post) {
       return res.status(404).json({ error: `Пост с id=${req.params.id} не найден` });
     }
-    res.status(200).json(post);
+    const [result] = await attachUsers([post]);
+    res.status(200).json(result);
   } catch (err) {
     next(err);
   }
@@ -60,7 +74,7 @@ async function createPost(req, res, next) {
       author,
       category,
       tags: normalizeTags(tags),
-      user: req.user.id,
+      userId: req.user.id, // id пользователя из PostgreSQL (берётся из JWT)
     });
     res.status(201).json(newPost);
   } catch (err) {

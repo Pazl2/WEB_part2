@@ -2,22 +2,27 @@
 
 Лабораторная работа №6. Интеграция с NoSQL базой данных MongoDB. Ветка репозитория: `lab26`.
 
-Сервер: Node.js + Express + **MongoDB (Mongoose)** + JWT (с двухфакторным подтверждением входа).
+Сервер: Node.js + Express + JWT (с двухфакторным подтверждением входа). Две базы данных:
+
+- **PostgreSQL (Sequelize)** — пользователи;
+- **MongoDB (Mongoose)** — посты (с тегами и вложенными комментариями).
 Клиент: React + Vite + axios (папка `euroTruck`): теги постов (фильтр по клику), комментарии с лайками, добавлением и удалением.
 
-В этой ветке PostgreSQL/Sequelize заменены на MongoDB/Mongoose (ветка `lab25` с PostgreSQL остаётся без изменений).
+В этой ветке посты перенесены из PostgreSQL в MongoDB, а пользователи остаются в PostgreSQL (ветка `lab25` с полностью PostgreSQL остаётся без изменений).
 
 ## Требования
 
 - Node.js 20+
-- MongoDB Atlas (бесплатный кластер M0) или локальный MongoDB Community Edition
+- PostgreSQL (пользователи)
+- MongoDB Atlas (бесплатный кластер M0) или локальный MongoDB Community Edition (посты)
 
 ## Запуск сервера
 
 ```bash
 npm install
-cp .env.example .env     # затем впишите MONGO_URI
-npm run seed             # (необязательно) демо-посты с тегами и комментариями
+cp .env.example .env     # затем впишите MONGO_URI и данные PostgreSQL
+npx sequelize-cli db:migrate   # создаёт таблицу Users в PostgreSQL
+npm run seed             # (необязательно) демо-посты с тегами и комментариями в MongoDB
 npm run dev
 ```
 
@@ -26,25 +31,31 @@ npm run dev
 - `MONGO_URI` — строка подключения (Atlas: `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/euroTruck?...`,
   локально: `mongodb://127.0.0.1:27017/euroTruck`). Если в пароле есть спецсимволы, закодируйте их (`@` → `%40`).
   В Atlas: Network Access → добавить свой IP (или `0.0.0.0/0` для учебных целей).
+- `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`, `DB_HOST`, `DB_PORT`, `DB_DIALECT` — подключение к PostgreSQL (пользователи).
 - `JWT_SECRET`, `JWT_EXPIRES_IN`, `PORT`, `RESPONSE_DELAY_MS` — как в предыдущих работах.
 
 Сервер доступен по адресу `http://localhost:3000`, API — по префиксу `/api`.
 
 ## Модель данных
 
-Коллекция `posts` (документ):
+**PostgreSQL**, таблица `Users`: `id` (integer, автоинкремент), `email` (уникальный), `password` (bcrypt), `role`, `twoFactorCode`, `twoFactorExpires`, `createdAt`, `updatedAt`.
+
+**MongoDB**, коллекция `posts` (документ):
 
 ```js
 {
   _id, title, content, author, category,
   tags: ['граница', 'важный'],                       // массив строк
   comments: [{ _id, author, text, likes, createdAt }], // вложенные документы
-  user: ObjectId -> users,                           // ссылка (populate)
+  userId: 1,                                         // id пользователя из PostgreSQL (Users.id)
   createdAt, updatedAt
 }
 ```
 
-Коллекция `users`: `email` (уникальный индекс), `password` (bcrypt), `role`, `twoFactorCode`, `twoFactorExpires`.
+Между базами нет внешнего ключа, поэтому связь `posts.userId → Users.id` поддерживается в коде:
+
+- при выдаче постов `email` автора подтягивается одним запросом к PostgreSQL (аналог `populate`) и добавляется в ответ как `user: { id, email }`;
+- при удалении пользователя (`DELETE /api/users/:id`) его посты в MongoDB удаляются вручную; удаление пользователя выполняется в транзакции PostgreSQL, и если удаление постов не удалось, транзакция откатывается.
 
 В реляционной версии комментарии и теги потребовали бы отдельных таблиц и JOIN; здесь это один документ.
 
@@ -60,13 +71,13 @@ npm run dev
 | POST | `/api/posts/:id/comments` | JWT | Добавить комментарий во вложенный массив (`{ "text": "..." }`) |
 | PATCH | `/api/posts/:id/comments/:commentId/like` | JWT | Увеличить `likes` комментария внутри массива (`$inc` + `$`) |
 | DELETE | `/api/posts/:id/comments/:commentId` | JWT | Удалить комментарий из массива (`$pull`) |
-| DELETE | `/api/users/:id` | JWT + admin | Удалить пользователя и каскадно все его посты |
+| DELETE | `/api/users/:id` | JWT + admin | Удалить пользователя (PostgreSQL) и каскадно все его посты (MongoDB) |
 | POST | `/api/auth/register` | открытый | Регистрация |
 | POST | `/api/auth/login` | открытый | Проверка пароля, генерация кода подтверждения |
 | POST | `/api/auth/verify-2fa` | открытый | Проверка кода, выдача JWT-токена |
 | GET | `/api/auth/me` | JWT | Данные текущего пользователя |
 
-Чтобы получить права admin, в MongoDB Compass измените у пользователя поле `role` на `admin` и заново войдите.
+Чтобы получить права admin, в PostgreSQL выполните `UPDATE "Users" SET role = 'admin' WHERE email = 'ваш@email';` и заново войдите.
 
 ## Вход в приложение
 

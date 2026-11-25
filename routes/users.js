@@ -3,13 +3,14 @@ const router = express.Router();
 const usersController = require('../controllers/usersController');
 const { authenticateToken } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/requireRole');
-const { validateObjectId } = require('../middleware/validateObjectId');
+const { validateIntegerId } = require('../middleware/validateIntegerId');
 
+// id пользователя — целое число (PostgreSQL), а не ObjectId
 router.delete(
   '/:id',
   authenticateToken,
   requireRole('admin'),
-  validateObjectId('id'),
+  validateIntegerId('id'),
   usersController.deleteUser
 );
 

@@ -1,46 +1,62 @@
-const mongoose = require('mongoose');
+'use strict';
+const { Model } = require('sequelize');
 const bcrypt = require('bcrypt');
-const toJSONOptions = require('./toJSONOptions');
 
-const userSchema = new mongoose.Schema(
-  {
-    email: {
-      type: String,
-      required: true,
-      unique: true, // уникальный индекс по email
-      lowercase: true,
-      trim: true,
-      match: [/^\S+@\S+\.\S+$/, 'Некорректный email'],
-    },
-    password: { type: String, required: true },
-    role: { type: String, default: 'user' },
-    twoFactorCode: { type: String, default: null },
-    twoFactorExpires: { type: Date, default: null },
-  },
-  {
-    timestamps: true,
-    toJSON: {
-      ...toJSONOptions,
-      transform(doc, ret) {
-        delete ret._id;
-        delete ret.password;
-        delete ret.twoFactorCode;
-        delete ret.twoFactorExpires;
-        return ret;
+module.exports = (sequelize, DataTypes) => {
+  class User extends Model {
+    // Проверка пароля
+    comparePassword(plain) {
+      return bcrypt.compare(plain, this.password);
+    }
+
+    // Наружу не отдаём пароль и данные 2FA
+    toJSON() {
+      const values = { ...this.get() };
+      delete values.password;
+      delete values.twoFactorCode;
+      delete values.twoFactorExpires;
+      return values;
+    }
+  }
+
+  User.init(
+    {
+      email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+        validate: { isEmail: { msg: 'Некорректный email' } },
+        // email хранится в нижнем регистре и без пробелов по краям
+        set(value) {
+          this.setDataValue(
+            'email',
+            typeof value === 'string' ? value.trim().toLowerCase() : value
+          );
+        },
+      },
+      password: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      role: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: 'user',
+      },
+      twoFactorCode: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      twoFactorExpires: {
+        type: DataTypes.DATE,
+        allowNull: true,
       },
     },
-  }
-);
+    {
+      sequelize,
+      modelName: 'User',
+    }
+  );
 
-// Метод экземпляра: проверка пароля
-userSchema.methods.comparePassword = function (plain) {
-  return bcrypt.compare(plain, this.password);
+  return User;
 };
-
-// Каскадное удаление: при удалении пользователя удаляем все его посты
-// (комментарии лежат внутри постов и удаляются вместе с ними).
-userSchema.pre('deleteOne', { document: true, query: false }, async function () {
-  await mongoose.model('Post').deleteMany({ user: this._id });
-});
-
-module.exports = mongoose.model('User', userSchema);

@@ -23,8 +23,10 @@ const postSchema = new mongoose.Schema(
     tags: { type: [String], default: [] },
     // массив вложенных документов
     comments: { type: [commentSchema], default: [] },
-    // ссылка на другую коллекцию (используется для populate)
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    // Пользователи лежат в PostgreSQL, поэтому ссылка на них — это обычное число
+    // (Users.id), а не ObjectId. Внешнего ключа между базами нет, связь
+    // поддерживается в коде (см. postsController и usersController).
+    userId: { type: Number },
   },
   { timestamps: true, toJSON: toJSONOptions }
 );
@@ -32,7 +34,7 @@ const postSchema = new mongoose.Schema(
 // Индексы: сортировка по дате, поиск по тегам, фильтр по автору-пользователю
 postSchema.index({ createdAt: -1 });
 postSchema.index({ tags: 1 });
-postSchema.index({ user: 1 });
+postSchema.index({ userId: 1 });
 
 // Метод экземпляра: добавить комментарий в массив comments
 postSchema.methods.addComment = function (author, text) {

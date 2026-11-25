@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 
 const connectDB = require('./db');
+const { sequelize } = require('./models');
 const postsRouter = require('./routes/posts');
 const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
@@ -27,6 +28,15 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  // Ошибки Sequelize (PostgreSQL — пользователи)
+  if (err.name === 'SequelizeUniqueConstraintError') {
+    return res.status(409).json({ error: 'Запись с такими данными уже существует' });
+  }
+  if (err.name === 'SequelizeValidationError') {
+    const message = err.errors.map((e) => e.message).join('; ');
+    return res.status(400).json({ error: message });
+  }
+  // Ошибки Mongoose (MongoDB — посты)
   if (err.name === 'ValidationError') {
     const message = Object.values(err.errors).map((e) => e.message).join('; ');
     return res.status(400).json({ error: message });
@@ -44,8 +54,15 @@ app.use((err, req, res, next) => {
 const port = Number(process.env.PORT) || 3000;
 const ip = 'localhost';
 
-connectDB()
+// Перед стартом проверяем подключение к обеим базам
+Promise.all([
+  sequelize.authenticate().then(() => console.log('PostgreSQL connected')),
+  connectDB(),
+])
   .then(() => {
     app.listen(port, () => console.log(`Server running on http://${ip}:${port}`));
   })
-  .catch(() => process.exit(1));
+  .catch((err) => {
+    console.error('Не удалось подключиться к базам данных:', err.message);
+    process.exit(1);
+  });

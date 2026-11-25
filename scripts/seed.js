@@ -1,7 +1,7 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const connectDB = require('../db');
-const { Post } = require('../models');
+const Post = require('../models/post');
 
 const DEMO_POSTS = [
   {
