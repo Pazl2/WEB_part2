@@ -6,6 +6,7 @@ const { clientOrigins } = require('./config/env');
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 const helmet = require('helmet');
 
 const connectDB = require('./db');
@@ -35,6 +36,19 @@ app.use(
   })
 );
 app.use(express.json({ limit: '100kb' }));
+
+// Эндпоинт для healthcheck контейнера (docker-compose): 200, только если доступны обе базы
+app.get('/health', async (req, res) => {
+  const mongodb = mongoose.connection.readyState === 1;
+  let postgres = true;
+  try {
+    await sequelize.authenticate();
+  } catch {
+    postgres = false;
+  }
+  const ok = mongodb && postgres;
+  res.status(ok ? 200 : 503).json({ status: ok ? 'ok' : 'unavailable', postgres, mongodb });
+});
 
 const responseDelay = Number(process.env.RESPONSE_DELAY_MS) || 0;
 if (responseDelay > 0) {
